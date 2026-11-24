@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { call } from '../helpers.js';
 import { setGuestResolver } from '../../src/core/access.js';
 import type { GuestGrant } from '../../src/core/access.js';
@@ -25,8 +25,19 @@ const fixtureVersions: AssetVersion[] = [
   { id: 'v-appr-escalation', submissionId: 's-ground-floor', number: 911, title: 'Fixture', imageUrl: '/assets/ground-floor-v1.svg', createdAt: '2026-11-10T00:00:00.000Z' },
   { id: 'v-appr-anon', submissionId: 's-ground-floor', number: 912, title: 'Fixture', imageUrl: '/assets/ground-floor-v1.svg', createdAt: '2026-11-10T00:00:00.000Z' },
   { id: 'v-appr-mutate', submissionId: 's-ground-floor', number: 913, title: 'Fixture', imageUrl: '/assets/ground-floor-v1.svg', createdAt: '2026-11-10T00:00:00.000Z' },
+  { id: 'v-appr-empty-token', submissionId: 's-ground-floor', number: 916, title: 'Fixture', imageUrl: '/assets/ground-floor-v1.svg', createdAt: '2026-11-10T00:00:00.000Z' },
 ];
 assetVersions.push(...fixtureVersions);
+
+// Round-2 review (item 6): core is frozen and shared across test files in the same
+// project; restore the exported `assetVersions` array to its pre-test contents so this
+// file leaves no residue for any other test file that runs in the same process.
+afterAll(() => {
+  for (const fixture of fixtureVersions) {
+    const index = assetVersions.indexOf(fixture);
+    if (index !== -1) assetVersions.splice(index, 1);
+  }
+});
 
 const groundFloorGrant: GuestGrant = {
   kind: 'guest',
@@ -259,6 +270,24 @@ describe('approvals: denied paths', () => {
   it('anonymous (no credentials at all) gets 401', async () => {
     const res = await call('/api/versions/v-appr-anon/decisions', { method: 'POST', body: { outcome: 'approved' } });
     expect(res.status).toBe(401);
+  });
+
+  // Round-2 security review (Aegis, item 7): an empty x-guest-token header is "present" by
+  // the same rule access.ts uses — it must take the guest path and be denied, never fall
+  // through to the x-user-id also on the request. Pins the bug class the #1 review found.
+  it('an empty x-guest-token header is denied on both POST and GET, even with a valid x-user-id present', async () => {
+    const postRes = await call('/api/versions/v-appr-empty-token/decisions', { method: 'POST', guest: '', as: 'u-sam', body: { outcome: 'approved' } });
+    expect(postRes.status).toBe(404);
+    expect(await postRes.json()).toEqual(notFoundBody);
+
+    const getRes = await call('/api/submissions/s-ground-floor/decisions', { guest: '', as: 'u-olivia' });
+    expect(getRes.status).toBe(404);
+    expect(await getRes.json()).toEqual(notFoundBody);
+
+    // Nothing was added for the denied POST attempt.
+    const followUp = await call('/api/submissions/s-ground-floor/decisions', { as: 'u-sam' });
+    const all = (await followUp.json()) as DecisionBody[];
+    expect(all.some((d) => d.versionId === 'v-appr-empty-token')).toBe(false);
   });
 });
 
