@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Members · ProofDesk Pins</title>
+    <link rel="stylesheet" href="/app.css" />
+    <style>
+      /* Page-only styling (ADR-0003 §E: app.css is frozen after T0). */
+      p.back {
+        margin: 0 0 var(--space-md);
+      }
+
+      section.identity-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-sm);
+        margin-bottom: var(--space-lg);
+      }
+
+      section.identity-bar label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-size: 0.85em;
+        color: var(--color-text-muted);
+        flex: 1 1 10rem;
+      }
+
+      p.demo-caption {
+        flex-basis: 100%;
+        margin: 0;
+        font-size: 0.8em;
+        font-style: italic;
+        color: var(--color-text-muted);
+      }
+
+      select,
+      input[type='text'] {
+        font: inherit;
+        padding: 0.55rem 0.6rem;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-surface-raised);
+        color: var(--color-text);
+      }
+
+      #status {
+        min-height: 1.25em;
+        margin: 0 0 var(--space-md);
+      }
+
+      #status.error {
+        color: #9b2c2c;
+      }
+
+      #status.success {
+        color: #2f7a3c;
+      }
+
+      table.members-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: var(--space-lg);
+      }
+
+      table.members-table th,
+      table.members-table td {
+        text-align: left;
+        padding: var(--space-xs) var(--space-sm);
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      form.add-member {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-sm);
+        max-width: 28rem;
+      }
+
+      form.add-member .row {
+        display: flex;
+        gap: var(--space-sm);
+        flex-wrap: wrap;
+      }
+
+      form.add-member .row > div {
+        flex: 1 1 10rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      form.add-member label {
+        font-size: 0.85em;
+        color: var(--color-text-muted);
+      }
+
+      button {
+        font: inherit;
+        padding: 0.65rem 1rem;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--color-accent);
+        background: var(--color-accent);
+        color: #fff;
+        cursor: pointer;
+        width: fit-content;
+      }
+
+      button:hover,
+      button:focus-visible {
+        opacity: 0.9;
+      }
+
+      button:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+      }
+
+      @media (max-width: 420px) {
+        form.add-member .row {
+          flex-direction: column;
+        }
+
+        /* flex-basis is a main-axis size: once .row switches to a column main axis, the
+           10rem basis from the row layout would otherwise stretch each field's height. */
+        form.add-member .row > div {
+          flex: 1 1 auto;
+        }
+
+        button {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="back"><a href="/">&larr; Back</a></p>
+      <h1>Members</h1>
+      <p class="lede">See who belongs to a workspace, and add a colleague if you're an owner.</p>
+
+      <section class="identity-bar" aria-label="Demo identity">
+        <p class="demo-caption">Demo only — there is no sign-in in this slice; the server authorizes every request regardless of what you pick here.</p>
+        <label for="actor">Acting as
+          <select id="actor" name="actor">
+            <option value="u-olivia">Olivia Hart (owner, North Studio)</option>
+            <option value="u-sam">Sam Patel (member, North Studio)</option>
+            <option value="u-rhea">Rhea Okafor (owner, South Architecture)</option>
+          </select>
+        </label>
+        <label for="workspace-id">Workspace id
+          <input type="text" id="workspace-id" name="workspaceId" value="w-north" />
+        </label>
+      </section>
+
+      <p id="status" role="status"></p>
+
+      <table class="members-table" aria-label="Workspace members">
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Email</th>
+            <th scope="col">Role</th>
+          </tr>
+        </thead>
+        <tbody id="members-body"></tbody>
+      </table>
+
+      <h2>Add a member</h2>
+      <form class="add-member" id="add-member-form">
+        <div class="row">
+          <div>
+            <label for="new-user-id">User id</label>
+            <input type="text" id="new-user-id" name="userId" placeholder="u-rhea" required />
+          </div>
+          <div>
+            <label for="new-role">Role</label>
+            <select id="new-role" name="role">
+              <option value="member">Member</option>
+              <option value="owner">Owner</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit">Add member</button>
+      </form>
+    </main>
+    <script type="module" src="/members.js"></script>
+  </body>
+</html>
