@@ -17,7 +17,8 @@ describe('core', () => {
 
   it('refuses a member of another workspace (denied path)', async () => {
     const res = await call('/api/submissions/s-ground-floor', { as: 'u-rhea' });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: { code: 'not_found', message: 'Not found' } });
   });
 
   it('refuses an anonymous caller', async () => {
