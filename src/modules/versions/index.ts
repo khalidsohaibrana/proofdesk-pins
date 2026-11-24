@@ -8,18 +8,44 @@ import { badRequest, notFound } from '../../core/http.js';
 import { assetVersions, findSubmission, versionsOf } from '../../core/store.js';
 import type { AssetVersion } from '../../core/types.js';
 
-const ASSETS_PREFIX = '/assets/';
+const MAX_IMAGE_URL_LENGTH = 200;
 
 /**
- * `imageUrl` must be a path under `/assets/`: no absolute URL, no protocol-relative URL,
- * no `..` traversal, nothing outside the prefix. (The file-handling flag on this ticket.)
+ * `imageUrl` must be exactly one path segment directly under `/assets/`: ASCII letters,
+ * digits, dot, underscore and hyphen only — no further `/`, no `%`, no control characters,
+ * no Unicode at all. Deliberately stricter than "starts with /assets/ and has no '..'":
+ * that earlier check (security review round 2, Aegis MEDIUM) still accepted percent-encoded
+ * traversal (`/assets/%2e%2e%2fetc%2fpasswd`), double-encoded traversal
+ * (`/assets/%252e%252e%252f...`), overlong-UTF-8 traversal (`/assets/%c0%ae%c0%ae/...`),
+ * double slashes (`/assets//evil`), embedded control characters (LF/CRLF/NUL) and
+ * Unicode dot/slash lookalikes — none exploitable against today's static file handler, but
+ * the value is written into an immutable `AssetVersion` record and capability 3 renders it
+ * as an `<img src>` on a guest-facing page, so a quote- or control-character-bearing value
+ * becomes someone else's problem permanently. Applied to the *decoded* value (see
+ * `normalizeImageUrl`), so an encoded or double-encoded bypass can't hide from the
+ * allowlist by never being decoded.
  */
-function isValidImageUrl(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length === 0) return false;
-  if (!value.startsWith(ASSETS_PREFIX)) return false;
-  if (value.includes('..')) return false;
-  if (value.includes('\\')) return false;
-  return true;
+const ASSET_PATH_PATTERN = /^\/assets\/[A-Za-z0-9._-]+$/;
+
+/**
+ * Decodes `value` exactly once and validates the result against `ASSET_PATH_PATTERN`.
+ * Returns the canonical decoded path on success (what gets stored — never the raw,
+ * possibly percent-encoded, input) or `undefined` on any failure, including malformed or
+ * invalid percent-encoding (overlong/invalid UTF-8 byte sequences throw `URIError`, which
+ * is treated as a rejection, not a crash). A single decode pass is sufficient: the
+ * allowlist excludes `%` entirely, so a value that is still percent-encoded after one
+ * decode (the double-encoding case) fails the pattern on that '%' alone.
+ */
+function normalizeImageUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  if (value.length > MAX_IMAGE_URL_LENGTH) return undefined;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
+  return ASSET_PATH_PATTERN.test(decoded) ? decoded : undefined;
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -43,10 +69,11 @@ export function register(app: Hono): void {
       throw badRequest('submissionId is determined by the path and must not be sent in the body');
     }
 
-    const { title, imageUrl } = body;
+    const { title } = body;
     if (!isNonEmptyString(title)) throw badRequest('title is required');
-    if (!isValidImageUrl(imageUrl)) {
-      throw badRequest('imageUrl must be a path under /assets/ with no traversal or external origin');
+    const imageUrl = normalizeImageUrl(body.imageUrl);
+    if (imageUrl === undefined) {
+      throw badRequest('imageUrl must be a single file name path under /assets/ with no traversal or external origin');
     }
 
     // Step 6: act. Numbering is the max existing number for this submission, plus one —

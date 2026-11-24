@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import { call } from '../helpers.js';
@@ -149,6 +151,30 @@ describe('versions: imageUrl and title validation (400 bad_request)', () => {
     { name: 'missing title', body: { imageUrl: '/assets/ground-floor-v2.svg' } },
     { name: 'empty title', body: { title: '', imageUrl: '/assets/ground-floor-v2.svg' } },
     { name: 'whitespace-only title', body: { title: '   ', imageUrl: '/assets/ground-floor-v2.svg' } },
+    // --- Round 2, Aegis MEDIUM: the prefix-plus-literal-'..'-ban check above accepted all
+    // of the following (verified against the pre-fix `isValidImageUrl` with a throwaway
+    // script reproducing its exact logic outside the app — every one of these 16 inputs
+    // returned `true`, i.e. would have been accepted with 201 and written into an
+    // immutable record). `normalizeImageUrl` decodes once, then matches a strict
+    // `/^\/assets\/[A-Za-z0-9._-]+$/` allowlist, which rejects every one of them because
+    // the decoded value either contains a `/` beyond the prefix, a `%` left over from
+    // double-encoding, a control character, a quote, or a non-ASCII code point.
+    { name: 'percent-encoded traversal (lowercase)', body: { title: 'x', imageUrl: '/assets/%2e%2e/%2e%2e/etc/passwd' } },
+    { name: 'percent-encoded traversal (single segment)', body: { title: 'x', imageUrl: '/assets/%2e%2e%2fetc%2fpasswd' } },
+    { name: 'double-percent-encoded traversal', body: { title: 'x', imageUrl: '/assets/%252e%252e%252fetc%252fpasswd' } },
+    { name: 'percent-encoded traversal (uppercase hex)', body: { title: 'x', imageUrl: '/assets/%2E%2E%2Fetc%2Fpasswd' } },
+    { name: 'overlong-UTF-8 encoded traversal', body: { title: 'x', imageUrl: '/assets/%c0%ae%c0%ae/etc/passwd' } },
+    { name: 'double slash after prefix', body: { title: 'x', imageUrl: '/assets//evil' } },
+    { name: 'triple slash plus external host look-alike', body: { title: 'x', imageUrl: '/assets///evil.test/x' } },
+    { name: 'embedded LF plus markup', body: { title: 'x', imageUrl: '/assets/x.svg\n<script>' } },
+    { name: 'embedded NUL byte', body: { title: 'x', imageUrl: `/assets/x.svg${String.fromCharCode(0)}.png` } },
+    { name: 'embedded CRLF (header injection shape)', body: { title: 'x', imageUrl: '/assets/x\r\nLocation: evil' } },
+    { name: 'quote-breaking attribute payload', body: { title: 'x', imageUrl: '/assets/x.svg" onerror="alert(1)' } },
+    { name: 'bare /assets/ with no file name', body: { title: 'x', imageUrl: '/assets/' } },
+    { name: 'fullwidth dot look-alike (U+FF0E)', body: { title: 'x', imageUrl: '/assets/．．test' } },
+    { name: 'one-dot-leader look-alike (U+2024)', body: { title: 'x', imageUrl: '/assets/․․test' } },
+    { name: 'RTL override control character (U+202E)', body: { title: 'x', imageUrl: '/assets/‮test' } },
+    { name: 'oversized path (100 KB)', body: { title: 'x', imageUrl: `/assets/${'a'.repeat(100_000)}.svg` } },
   ];
 
   for (const { name, body } of cases) {
@@ -167,6 +193,21 @@ describe('versions: imageUrl and title validation (400 bad_request)', () => {
       body: { title: 'Valid control case', imageUrl: '/assets/ground-floor-v2.svg' },
     });
     expect(res.status).toBe(201);
+  });
+
+  it('accepts a percent-encoded-but-benign path and stores the decoded, canonical form', async () => {
+    // Percent-encoding an otherwise-safe character (here 'g' as %67) is legitimate URL
+    // syntax, not an attack — the allowlist runs on the decoded value, so this is
+    // accepted, and what's persisted is the decoded, canonical string (never the raw,
+    // still-encoded input), so every stored imageUrl matches the allowlist exactly.
+    const res = await call('/api/submissions/s-ground-floor/versions', {
+      method: 'POST',
+      as: 'u-sam',
+      body: { title: 'Benign percent-encoding', imageUrl: '/assets/%67round-floor-v2.svg' },
+    });
+    expect(res.status).toBe(201);
+    const version = (await res.json()) as { imageUrl: string };
+    expect(version.imageUrl).toBe('/assets/ground-floor-v2.svg');
   });
 
   it('a body carrying submissionId (which the path already determines) is rejected with 400', async () => {
@@ -258,6 +299,36 @@ describe('versions: no mutating verb exists on any version path', () => {
   }
 });
 
+describe('versions: module import boundary (ADR-0003 §C fact 1, round 2 Iris SHOULD FIX)', () => {
+  it('src/modules/versions/index.ts imports only from core and node builtins — never another module folder', () => {
+    // Invariant 3 ("a new version never moves or hides earlier comments") currently holds
+    // only as a structural fact: this module has no import of, and therefore no way to
+    // reach, the comments or approvals collections. Nothing enforced that statically before
+    // this test — a future edit could add `import { comments } from '../comments/store.js'`
+    // and every other test in this file would still pass. This test fails the moment that
+    // import boundary is crossed, independent of #15's planned rewrite against #4/#5's real
+    // endpoints once they exist.
+    const sourcePath = fileURLToPath(new URL('../../src/modules/versions/index.ts', import.meta.url));
+    const source = readFileSync(sourcePath, 'utf8');
+    const importLines = source
+      .split('\n')
+      .filter((line) => /^\s*import\b/.test(line));
+
+    expect(importLines.length).toBeGreaterThan(0);
+
+    for (const line of importLines) {
+      const specifierMatch = line.match(/from\s+['"]([^'"]+)['"]/);
+      expect(specifierMatch).not.toBeNull();
+      const specifier = specifierMatch?.[1] ?? '';
+      const isAllowed =
+        specifier === 'hono' ||
+        specifier.startsWith('node:') ||
+        specifier.startsWith('../../core/');
+      expect({ line, specifier, isAllowed }).toEqual({ line, specifier, isAllowed: true });
+    }
+  });
+});
+
 describe('versions: append-only — no existing element is read-modified-written', () => {
   it('pushing a new version leaves every previously existing AssetVersion deep-equal to its pre-push snapshot', async () => {
     vi.resetModules();
@@ -287,21 +358,38 @@ describe('versions: append-only — no existing element is read-modified-written
 // branch was cut, so there is no real comments/decisions endpoint to seed through. Per the
 // ticket's instruction for that case, this constructs an EQUIVALENT LOCAL FIXTURE — plain
 // arrays shaped like the collections ADR-0003 §C describes (filtered by `versionId`, never
-// mutated in place) — rather than weakening the assertions. The fixture exists only to prove
-// the structural facts that matter: pushing a new AssetVersion (a) never touches any other
-// collection, because this module's code has no import of and no reference to one, and
-// (b) never mutates the v-ground-1 object. Uses a freshly reset module graph (like
-// tests/unit/access.test.ts's fail-closed tests) so s-ground-floor starts from the seed
-// state (exactly v-ground-1) regardless of what earlier tests in this file already added.
+// mutated in place) — rather than weakening the assertions for the parts that genuinely
+// depend on code that does not exist yet on main.
+//
+// IMPORTANT, round 2 (both reviewers): the three assertions on `fixtureComments` and
+// `fixtureDecision` below (lines marked PLACEHOLDER — see #15) compare the fixture to a
+// snapshot taken of *itself* earlier in this same test. They cannot fail for any
+// implementation of this module, because nothing in this module ever touches those plain
+// local arrays — there is no production code path under test for them. They are left in,
+// clearly labelled, only to document the shape #15 will assert for real once #4 and the
+// approvals module merge and this module's code can be checked against their actual,
+// mutation-capable collections. Do not read them as proof that comments/decisions survive —
+// the assertions that **do** carry real signal today are: the `v-ground-1` AssetVersion
+// object is unchanged (compares the real store's state, not a fixture), the new version is
+// last with number 2 (real store), and the module-import-boundary test above (which is
+// what actually proves this module cannot reach another module's collection to begin with).
 describe('versions: IMMUTABILITY REGRESSION (invariant 3, required)', () => {
-  it('v-ground-1, its comments and its decision are unchanged after a new version is appended; the new version is last with number 2 and has no comments', async () => {
+  it('v-ground-1 is unchanged after a new version is appended; the new version is last with number 2 (fixture comments/decision are placeholders — see #15)', async () => {
     vi.resetModules();
     const storeModule = (await import('../../src/core/store.js')) as typeof import('../../src/core/store.js');
     const versionsModule = (await import('../../src/modules/versions/index.js')) as typeof import('../../src/modules/versions/index.js');
+    // The real, registered health module — not a hand-rolled stub — so this test exercises
+    // the actual authorized GET /api/submissions/:id path, including its
+    // `requireSubmissionAccess(c, submission, 'view')` call, rather than a stand-in route
+    // that cannot deny access (round 2, Iris SHOULD FIX).
+    const healthModule = (await import('../../src/modules/health/index.js')) as typeof import('../../src/modules/health/index.js');
 
-    // Equivalent local fixture standing in for #4's comments collection and #5's/approvals'
-    // decisions collection (both absent on main as of this branch). Shaped exactly as
-    // ADR-0003 §C specifies: readonly-style records, filtered by versionId, appended only.
+    // PLACEHOLDER (see #15): equivalent local fixture standing in for #4's comments
+    // collection and #5's/approvals' decisions collection (both absent on main as of this
+    // branch). Shaped as ADR-0003 §C describes — readonly-style records, filtered by
+    // versionId, appended only — but these are plain arrays this test owns, not the real
+    // collections. The three assertions against them below cannot fail; they document
+    // intent only. #15 tracks replacing them with real seeding through #4/#5's endpoints.
     const fixtureComments: ReadonlyArray<{ readonly id: string; readonly versionId: string; readonly body: string; readonly pin: { readonly x: number; readonly y: number } }> = [
       { id: 'c-fixture-1', versionId: 'v-ground-1', body: 'Move this wall left', pin: { x: 0.42, y: 0.58 } },
     ];
@@ -317,14 +405,11 @@ describe('versions: IMMUTABILITY REGRESSION (invariant 3, required)', () => {
       decidedAt: new Date().toISOString(),
     };
 
-    // Snapshot GET /api/submissions/s-ground-floor and the v-ground-1 comment list.
+    // Snapshot GET /api/submissions/s-ground-floor (via the real health module) and the
+    // v-ground-1 fixture comment list.
     const app = new Hono();
     versionsModule.register(app);
-    app.get('/api/submissions/:id', (c) => {
-      const submission = storeModule.findSubmission(c.req.param('id'));
-      if (!submission) return c.json({ error: 'not_found' }, 404);
-      return c.json({ submission, versions: storeModule.versionsOf(submission.id) });
-    });
+    healthModule.register(app);
 
     const beforeRead = await app.request('/api/submissions/s-ground-floor', { headers: { 'x-user-id': 'u-sam' } });
     const beforeBody = (await beforeRead.json()) as { submission: unknown; versions: Array<{ id: string }> };
@@ -348,26 +433,33 @@ describe('versions: IMMUTABILITY REGRESSION (invariant 3, required)', () => {
     const afterBody = (await afterRead.json()) as { versions: Array<{ id: string; number: number }> };
     const vGroundFloorAfter = afterBody.versions.find((v) => v.id === 'v-ground-1');
 
-    // The v-ground-1 object is unchanged.
+    // REAL SIGNAL: the v-ground-1 object, read back through the real, authorized
+    // GET /api/submissions/:id, is unchanged.
     expect(vGroundFloorAfter).toEqual(vGroundFloorSnapshot);
 
-    // The v-ground-1 comment array is unchanged (this module's code never reaches it —
-    // there is no mutator it could call even if it tried).
+    // PLACEHOLDER (see #15): this compares `fixtureComments` to a snapshot of itself —
+    // nothing in this module's code can change it either way, so this assertion cannot
+    // fail. Left in only to document the shape #15 will assert for real against #4's
+    // actual comments collection.
     const vGroundFloorCommentsAfter = fixtureComments.filter((comment) => comment.versionId === 'v-ground-1');
     expect(vGroundFloorCommentsAfter).toEqual(vGroundFloorCommentsSnapshot);
 
-    // The decision on v-ground-1 is unchanged.
+    // PLACEHOLDER (see #15): same caveat — compares `fixtureDecision` to a snapshot of
+    // itself; cannot fail. Documents intent for the real approvals collection.
     expect(fixtureDecision).toEqual(decisionSnapshot);
 
-    // The new version appears last, with number 2 (this is the very first append to
-    // s-ground-floor in this freshly reset module graph).
+    // REAL SIGNAL: the new version appears last, with number 2 (this is the very first
+    // append to s-ground-floor in this freshly reset module graph) — read back through the
+    // real health module.
     expect(afterBody.versions.at(-1)).toEqual(newVersion);
     expect(newVersion.number).toBe(2);
     expect(newVersion.submissionId).toBe('s-ground-floor');
 
-    // The new version's comment list — derived the same way a real comments collection
-    // would be, by filtering on versionId — is empty: nothing was copied, migrated or
-    // re-parented onto it.
+    // PLACEHOLDER (see #15): `fixtureComments` was never written to by this module (it has
+    // no way to), so filtering it by the new version's id is necessarily `[]` regardless of
+    // what this module does. Documents the real assertion #15 will make against #4's
+    // endpoint. The test that actually proves this module cannot reach another module's
+    // collection is "versions: module import boundary" above.
     const newVersionComments = fixtureComments.filter((comment) => comment.versionId === newVersion.id);
     expect(newVersionComments).toEqual([]);
   });
