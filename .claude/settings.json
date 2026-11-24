@@ -43,7 +43,11 @@
       "Bash(vercel deploy --prod*)",
       "Bash(npx vercel --prod*)",
       "Bash(fly deploy*)",
-      "Bash(flyctl deploy*)"
+      "Bash(flyctl deploy*)",
+      "Edit(.claude/agent-system.json)",
+      "Write(.claude/agent-system.json)",
+      "Edit(.claude/settings.json)",
+      "Write(.claude/settings.json)"
     ]
   },
   "hooks": {
@@ -54,6 +58,16 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/agent-system/hooks/guard-main-checkout.mjs\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task|SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/agent-system/hooks/cap-subagents.mjs\"",
+            "timeout": 10
           }
         ]
       }
