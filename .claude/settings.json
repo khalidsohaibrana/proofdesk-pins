@@ -43,7 +43,11 @@
       "Bash(vercel deploy --prod*)",
       "Bash(npx vercel --prod*)",
       "Bash(fly deploy*)",
-      "Bash(flyctl deploy*)"
+      "Bash(flyctl deploy*)",
+      "Edit(.claude/agent-system.json)",
+      "Write(.claude/agent-system.json)",
+      "Edit(.claude/settings.json)",
+      "Write(.claude/settings.json)"
     ]
   },
   "hooks": {

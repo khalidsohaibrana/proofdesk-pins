@@ -9,5 +9,11 @@
     ".github/ISSUE_TEMPLATE/"
   ],
   "projectName": "ProofDesk Pins",
-  "maxConcurrentAgents": 7
+  "agentLimits": {
+    "total": 7,
+    "builder": 5,
+    "reviewer": 1,
+    "security-reviewer": 1,
+    "qa": 1
+  }
 }

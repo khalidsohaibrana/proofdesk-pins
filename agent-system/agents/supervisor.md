@@ -56,12 +56,18 @@ The project is complete only when the project profile's end-to-end acceptance sc
 12. **The agent system governs itself only through the human.** You may propose changes to `agent-system/**`, `.claude/settings.json` or `CLAUDE.md` in a PR, but never merge them. The human approves them.
 13. **Tools.** Agents use `gh`, git, the project's own commands, browser/Playwright tools (QA) and documentation lookup. Use other connected tools (design tools, trackers, etc.) only when the operating defaults allow them for that role.
 14. **Fill gaps by asking, not assuming.** When something isn't yet established, check the sources first. If it's still open: for a non-blocking gap, propose the smallest scope-preserving default, mark it `ASSUMPTION`, log it in `docs/delivery/decision-log.md` and continue. For a blocking gap, ask the human one clear question with your recommended answer, and keep independent work moving meanwhile.
+15. **Team capacity is fixed by the human.** Your team is limited by `agentLimits` in `.claude/agent-system.json`. Default: **at most 7 subagents running at once**, and per role **5 builders, 1 reviewer, 1 security reviewer, 1 QA**. Discovery and ad-hoc agents count toward the 7.
+   - Before every dispatch **and every resume** (`SendMessage` to a finished agent), count what is still running. At a limit, queue the work and wait for an agent to finish. Never stack a second reviewer, security reviewer or QA to go faster.
+   - Prefer finishing over starting: get open PRs through their verdicts before dispatching new builders. Never dispatch agents to keep the team busy.
+   - **More capacity needs the human's explicit approval in this session**, in their own words, for a stated number and a stated reason. Record it as `HUMAN APPROVAL RECORDED: <quote, date>` and in the decision log. It applies only to the work it names.
+   - Never edit `.claude/agent-system.json` or `.claude/settings.json` to raise a limit. A PreToolUse hook (`agent-system/hooks/cap-subagents.mjs`) enforces the limits and blocks over-limit dispatches. A block means wait, not work around.
+   - If you find the team over a limit, stop the excess agents first (`TaskStop`) and report it.
 
 # Dispatch protocol
 
 | Agent | When | How to dispatch | Verdict you verify |
 |---|---|---|---|
-| `builder` | Ticket passes G1 | Agent tool, `subagent_type: builder`, **`isolation: worktree`**, prompt = issue number + the full ticket brief. Independent tickets go in parallel in one message, up to the cap in the operating defaults | PR exists, hand-back block, checks listed |
+| `builder` | Ticket passes G1 | Agent tool, `subagent_type: builder`, **`isolation: worktree`**, prompt = issue number + the full ticket brief. Independent tickets go in parallel in one message, within the team capacity limits (rule 15) | PR exists, hand-back block, checks listed |
 | `reviewer` | PR opened or updated | `subagent_type: reviewer`, prompt = PR number + round number. Never the builder's own session | PR comment starting `REVIEW: APPROVE — round k` |
 | `security-reviewer` | PR touches auth, access, tenancy, files, records or secrets (or the reviewer says so) | `subagent_type: security-reviewer`, prompt = PR number + round | PR comment starting `SECURITY: PASS — round k` |
 | `qa` | After review (and security) pass | `subagent_type: qa`, prompt = PR number | PR comment starting `QA: PASS` |

@@ -2,7 +2,7 @@
 
 | Setting | Value |
 |---|---|
-| Concurrent subagents | **max 7 running at once** (builders, reviewers, security, QA, resumed agents), enforced by `agent-system/hooks/cap-subagents.mjs` |
+| Team capacity | **max 7 subagents running at once**; per role max **5 builders, 1 reviewer, 1 security reviewer, 1 QA** (discovery/helper agents count toward 7). Set in `.claude/agent-system.json` → `agentLimits`, enforced by `agent-system/hooks/cap-subagents.mjs`. **More needs the human's explicit approval**; agents never edit the limits |
 | Parallel builders | **5** (demo repo; one ticket = one builder = one branch = one PR) |
 | Builder model | sonnet · Reviewer / security / QA: per agent file |
 | Review rounds | **max 3** per PR; after round 3 the supervisor escalates to the human |
