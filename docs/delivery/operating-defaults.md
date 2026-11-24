@@ -14,3 +14,4 @@
 | Who merges | the human product owner |
 | ADRs | agents write **Proposed**; only the human accepts |
 | Review fixes | the supervisor sends findings back to the **same** builder (resume it), not a new one |
+| **No make-work** | Never dispatch an agent or open a review round to keep agents busy. Getting open PRs through their **first** verdicts outranks starting new rounds |
