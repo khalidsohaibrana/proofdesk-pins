@@ -13,3 +13,5 @@
 | Who merges | the human product owner |
 | ADRs | agents write **Proposed**; only the human accepts |
 | Review fixes | the supervisor sends findings back to the **same** builder (resume it), not a new one |
+| **Concurrent agents** | **Hard limit 7 at any one time**, counting builders, reviewers, security reviewers, QA and any resumed agent. The supervisor counts what is still running **before every dispatch or resume**; at 7, it waits for one to finish. This caps total concurrency and sits above the "parallel builders 5" row, which caps builders only |
+| **No make-work** | Never open a review round, or dispatch any agent, to keep agents busy. Getting open PRs through their **first** verdicts outranks starting new rounds |
