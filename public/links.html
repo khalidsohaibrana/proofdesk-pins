@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Guest review links · ProofDesk Pins</title>
+    <link rel="stylesheet" href="/app.css" />
+    <style>
+      /* Page-local styling only (ADR-0003 §E: app.css is frozen). Reuses the shared
+         tokens defined there (--color-*, --space-*, --radius-*, --duration-fast). */
+      [hidden] {
+        display: none !important;
+      }
+
+      .back-link {
+        display: inline-block;
+        margin-bottom: var(--space-md);
+        color: var(--color-text-muted);
+        text-decoration: none;
+        font-size: 0.9em;
+      }
+      .back-link:hover,
+      .back-link:focus-visible {
+        color: var(--color-accent);
+      }
+
+      fieldset {
+        /* Browsers give <fieldset> an implicit min-inline-size based on its content's
+           min-content width (historically min-width: -webkit-min-content in Chromium's UA
+           stylesheet), which overrides normal shrink-to-fit sizing and silently causes
+           horizontal overflow once content (e.g. a long member-typed label) is wider than
+           the viewport — independent of overflow-wrap on the content itself. */
+        min-width: 0;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        margin: 0 0 var(--space-lg);
+        background: var(--color-surface-raised);
+      }
+      legend {
+        font-weight: 600;
+        padding: 0 var(--space-xs);
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3em;
+        margin-bottom: var(--space-sm);
+      }
+      label {
+        font-size: 0.9em;
+        color: var(--color-text-muted);
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+        padding: var(--space-xs);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--color-border);
+        background: var(--color-surface);
+        color: var(--color-text);
+      }
+      button {
+        cursor: pointer;
+        background: var(--color-accent);
+        color: #fff;
+        border-color: var(--color-accent);
+        transition: opacity var(--duration-fast) var(--ease-out-expo);
+      }
+      button:hover,
+      button:focus-visible {
+        opacity: 0.85;
+      }
+      button.secondary {
+        background: var(--color-surface);
+        color: var(--color-text);
+        border-color: var(--color-border);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      #error {
+        color: #9b2c2c;
+        margin: 0 0 var(--space-sm);
+      }
+      #error:empty {
+        display: none;
+      }
+
+      .share-box {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-xs);
+        align-items: stretch;
+        margin-top: var(--space-sm);
+      }
+      .share-box input {
+        flex: 1 1 100%;
+        min-width: 0;
+      }
+
+      ul.link-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-sm);
+      }
+      .link-card {
+        /* Flex item (ul.link-list is display:flex) + defense-in-depth against the same
+           min-content sizing issue as the <fieldset> fix above: without this, a long
+           unbreakable run in the label could keep this item from shrinking below its
+           content's natural width. */
+        min-width: 0;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        padding: var(--space-sm);
+        background: var(--color-surface-raised);
+      }
+      .link-card .label {
+        font-weight: 600;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      .link-card .meta {
+        font-size: 0.85em;
+        color: var(--color-text-muted);
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      .status-badge {
+        display: inline-block;
+        font-size: 0.8em;
+        padding: 0.15em 0.6em;
+        border-radius: 999px;
+        border: 1px solid var(--color-border);
+      }
+      .status-active {
+        color: #1a6b3a;
+        border-color: #1a6b3a;
+      }
+      .status-revoked,
+      .status-expired {
+        color: #6b6a63;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back-link" href="/">&larr; Back</a>
+      <h1>Guest review links</h1>
+      <p class="lede">Create a secure link for a client with no account. Links expire and can be revoked.</p>
+
+      <p id="error" role="alert"></p>
+
+      <fieldset>
+        <legend>Create a link</legend>
+        <div class="field">
+          <label for="submission-select">Submission</label>
+          <select id="submission-select">
+            <option value="s-ground-floor">Ground floor plan (North Studio)</option>
+            <option value="s-mill-facade">Facade study (South Architecture)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="actor-select">Acting as (demo identity)</label>
+          <select id="actor-select">
+            <option value="u-olivia">Olivia Hart (owner, North Studio)</option>
+            <option value="u-sam">Sam Patel (member, North Studio)</option>
+            <option value="u-rhea">Rhea Okafor (owner, South Architecture)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="label-input">Client label (optional)</label>
+          <input id="label-input" type="text" placeholder="Guest reviewer" maxlength="200" />
+        </div>
+        <div class="field">
+          <label for="expires-select">Link lifetime</label>
+          <select id="expires-select">
+            <option value="7">7 days (default)</option>
+            <option value="1">1 day</option>
+            <option value="3">3 days</option>
+            <option value="14">14 days</option>
+            <option value="30">30 days (maximum)</option>
+          </select>
+        </div>
+        <button id="create-button" type="button">Create link</button>
+
+        <div id="new-link-box" class="share-box" hidden>
+          <input id="new-link-input" type="text" readonly aria-label="Shareable review link" />
+          <button id="copy-button" type="button" class="secondary">Copy link</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Links for this submission</legend>
+        <ul id="link-list" class="link-list"></ul>
+        <p id="empty-state" class="meta" hidden>No links yet for this submission.</p>
+      </fieldset>
+    </main>
+    <script type="module" src="/links.js"></script>
+  </body>
+</html>
