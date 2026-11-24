@@ -40,3 +40,7 @@ export const findUser = (id: string): User | undefined => users.find((user) => u
 export const findSubmission = (id: string): Submission | undefined => submissions.find((item) => item.id === id);
 export const membershipOf = (workspaceId: string, userId: string): Membership | undefined =>
   memberships.find((item) => item.workspaceId === workspaceId && item.userId === userId);
+export const findAssetVersion = (id: string): AssetVersion | undefined =>
+  assetVersions.find((version) => version.id === id);
+export const versionsOf = (submissionId: string): ReadonlyArray<AssetVersion> =>
+  assetVersions.filter((version) => version.submissionId === submissionId).slice().sort((a, b) => a.number - b.number);

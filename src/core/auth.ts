@@ -3,7 +3,7 @@
 import type { Context } from 'hono';
 import { findUser, membershipOf } from './store.js';
 import type { Actor, Role } from './types.js';
-import { forbidden, unauthorized } from './http.js';
+import { forbidden, notFound, unauthorized } from './http.js';
 
 export const USER_HEADER = 'x-user-id';
 
@@ -19,7 +19,7 @@ export function requireMember(c: Context, workspaceId: string, role?: Role): Rol
   if (actor.kind !== 'user') throw unauthorized();
   const membership = membershipOf(workspaceId, actor.user.id);
   // Non-members get the same answer as for a missing resource: no tenant data leaks.
-  if (!membership) throw forbidden();
+  if (!membership) throw notFound();
   if (role === 'owner' && membership.role !== 'owner') throw forbidden('Only workspace owners can do this');
   return membership.role;
 }

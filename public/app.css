@@ -1,0 +1,98 @@
+/* Shared design tokens and phone-first layout (ADR-0003 §E). Frozen after T0: per-page
+   styling goes in the page's own <style> block or in a public/<page>.css the owning
+   ticket creates — nobody edits this file again. */
+
+:root {
+  color-scheme: light;
+
+  --color-surface: #faf9f5;
+  --color-surface-raised: #ffffff;
+  --color-border: #e5e1d8;
+  --color-text: #141413;
+  --color-text-muted: #6b6a63;
+  /* #a8502f on #ffffff is ~5.45:1, above WCAG AA's 4.5:1 for normal (16px bold here, which
+     does not qualify as "large") text; the original #c2603f was only ~3.9:1. */
+  --color-accent: #a8502f;
+
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1.25rem;
+  --space-lg: 2rem;
+  --space-section: clamp(2rem, 1.5rem + 3vw, 4rem);
+
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+
+  --text-base: clamp(1rem, 0.95rem + 0.2vw, 1.05rem);
+  --text-heading: clamp(1.5rem, 1.2rem + 1.5vw, 2.25rem);
+
+  --duration-fast: 150ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font: var(--text-base) / 1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-section) var(--space-md) var(--space-lg);
+}
+
+h1 {
+  font-size: var(--text-heading);
+  margin: 0 0 var(--space-xs);
+  letter-spacing: -0.01em;
+}
+
+p.lede {
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-lg);
+}
+
+nav.capability-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+nav.capability-list a {
+  display: block;
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  text-decoration: none;
+  transition: border-color var(--duration-fast) var(--ease-out-expo), transform var(--duration-fast) var(--ease-out-expo);
+}
+
+nav.capability-list a strong {
+  display: block;
+  color: var(--color-accent);
+  margin-bottom: 0.15em;
+}
+
+nav.capability-list a:hover,
+nav.capability-list a:focus-visible {
+  border-color: var(--color-accent);
+  transform: translateY(-1px);
+}
+
+nav.capability-list a:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
