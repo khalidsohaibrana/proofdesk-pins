@@ -3,8 +3,9 @@
 // registers its resolver into this file at `register()` time. Core never imports a module.
 import type { Context } from 'hono';
 import type { Role, Submission } from './types.js';
-import { requireMember } from './auth.js';
-import { notFound } from './http.js';
+import { requireMember, USER_HEADER } from './auth.js';
+import { notFound, unauthorized } from './http.js';
+import { findUser } from './store.js';
 
 /** The header a guest presents. Guest tokens are never read from a query string, path or body. */
 export const GUEST_HEADER = 'x-guest-token';
@@ -49,10 +50,16 @@ export function setGuestResolver(resolve: GuestResolver): () => void {
   };
 }
 
-/** The grant for this request, or `undefined`. Reads `x-guest-token` and nothing else. */
+/**
+ * The grant for this request, or `undefined`. Reads `x-guest-token` and nothing else.
+ * The header is "present" whenever it was sent at all, including an empty value — an
+ * empty or whitespace-only token simply fails to resolve to a grant, same as any other
+ * unknown token. This presence rule is the single source of truth `requireSubmissionAccess`
+ * also uses, so the two can never diverge on what counts as "a guest token was sent".
+ */
 export function guestGrantOf(c: Context): GuestGrant | undefined {
   const token = c.req.header(GUEST_HEADER);
-  if (!token) return undefined;
+  if (token === undefined) return undefined;
   return currentResolver(token);
 }
 
@@ -79,9 +86,10 @@ export type Principal =
  * Throws (never returns) on denial. Returns the `Principal` on success.
  */
 export function requireSubmissionAccess(c: Context, submission: Submission, action: Action): Principal {
-  const token = c.req.header(GUEST_HEADER);
-  if (token) {
-    const grant = currentResolver(token);
+  // Same presence rule as guestGrantOf: the guest path is taken whenever the header was
+  // sent at all, even empty — never read the header twice with two different rules.
+  if (c.req.header(GUEST_HEADER) !== undefined) {
+    const grant = guestGrantOf(c);
     if (
       !grant ||
       grant.submissionId !== submission.id ||
@@ -94,8 +102,9 @@ export function requireSubmissionAccess(c: Context, submission: Submission, acti
   }
 
   const role = requireMember(c, submission.workspaceId);
-  // requireMember throws on denial (401 with no x-user-id, 404 for a non-member), so the
-  // header is guaranteed to be present here.
-  const userId = c.req.header('x-user-id') as string;
-  return { kind: 'user', userId, role, label: userId };
+  // requireMember throws on denial (401 with no x-user-id, 404 for a non-member or an
+  // unknown id), so the header is guaranteed to name a real user here.
+  const user = findUser(c.req.header(USER_HEADER) ?? '');
+  if (!user) throw unauthorized();
+  return { kind: 'user', userId: user.id, role, label: user.name };
 }

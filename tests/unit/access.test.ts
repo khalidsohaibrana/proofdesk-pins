@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { call } from '../helpers.js';
 import {
   GUEST_HEADER,
@@ -14,6 +14,18 @@ import type { Submission } from '../../src/core/types.js';
 
 const groundFloor = findSubmission('s-ground-floor') as Submission;
 const millFacade = findSubmission('s-mill-facade') as Submission;
+
+beforeAll(async () => {
+  // Force the shared in-process app (built once in tests/helpers.ts) to finish resolving
+  // its dynamic module imports — including its one-time `import('../../core/access.js')`
+  // inside src/modules/health/index.ts — before any test below calls `vi.resetModules()`.
+  // Otherwise a reset could race that still-pending import and leave the app's route
+  // bound to a *different* access.js module instance than the one this file's static
+  // imports (and setGuestResolver calls) talk to, causing guest grants to silently
+  // stop reaching the app. Warming the app up first confines the reset to the throwaway
+  // module instances the fail-closed tests create for themselves.
+  await call('/health');
+});
 
 const groundFloorGrant: GuestGrant = {
   kind: 'guest',
@@ -52,15 +64,45 @@ async function readHeader(headers: Record<string, string>): Promise<string | und
   return seen;
 }
 
+describe('access: fail-closed default', () => {
+  // This must not depend on test declaration order, and must not depend on every other
+  // test in this file having correctly restored its resolver. `vi.resetModules()` plus a
+  // fresh dynamic import gives a brand-new module instance whose `currentResolver` has
+  // just been initialised to `denyAll` by the module's own top-level code — the actual
+  // shipped default, not whatever state earlier tests left behind. T1–T5: copy this
+  // pattern rather than `afterEach(() => setGuestResolver(() => undefined))` alone, which
+  // only proves "deny-all resolver currently installed", not "fails closed by default".
+  it('denies any token when no resolver has ever been installed, regardless of other tests', async () => {
+    vi.resetModules();
+    const fresh = (await import('../../src/core/access.js')) as typeof import('../../src/core/access.js');
+    const app = new Hono();
+    let grant: unknown;
+    app.get('/t', (c: Context) => {
+      grant = fresh.guestGrantOf(c);
+      return c.json({ ok: true });
+    });
+    const response = await app.request('/t', { headers: { [fresh.GUEST_HEADER]: 'anything-at-all' } });
+    expect(response.status).toBe(200);
+    expect(grant).toBeUndefined();
+  });
+
+  it('denies via requireSubmissionAccess too, on a freshly loaded module', async () => {
+    vi.resetModules();
+    const fresh = (await import('../../src/core/access.js')) as typeof import('../../src/core/access.js');
+    const app = new Hono();
+    app.get('/t', (c: Context) => {
+      fresh.requireSubmissionAccess(c, groundFloor, 'view');
+      return c.json({ ok: true });
+    });
+    const response = await app.request('/t', { headers: { [fresh.GUEST_HEADER]: 'anything-at-all' } });
+    expect(response.status).toBe(404);
+  });
+});
+
 describe('access: setGuestResolver', () => {
   afterEach(() => {
     // Defensive reset in case a test forgets its own restore.
     setGuestResolver(() => undefined);
-  });
-
-  it('fails closed with no resolver installed', async () => {
-    const { response } = await runAccess({ [GUEST_HEADER]: 'anything' }, groundFloor, 'view');
-    expect(response.status).toBe(404);
   });
 
   it('installs a resolver and resolves a known token', () => {
@@ -132,10 +174,13 @@ describe('access: requireSubmissionAccess', () => {
     setGuestResolver(() => undefined);
   });
 
-  it('returns a user Principal carrying the role for a workspace member', async () => {
+  it('returns a user Principal carrying the role and the user\'s real name for a workspace member', async () => {
     const { response, principal } = await runAccess({ 'x-user-id': 'u-sam' }, groundFloor, 'view');
     expect(response.status).toBe(200);
-    expect(principal).toEqual({ kind: 'user', userId: 'u-sam', role: 'member', label: 'u-sam' });
+    // userId stays the opaque id (what records key on); label is the human name (what
+    // ADR-0003 says is "safe to ... show in the UI") — these must not collapse to the
+    // same value, which is why they're asserted separately rather than both as 'u-sam'.
+    expect(principal).toEqual({ kind: 'user', userId: 'u-sam', role: 'member', label: 'Sam Patel' });
   });
 
   it('a member holds every action including manage', async () => {
@@ -232,9 +277,9 @@ describe('access: integration via GET /api/submissions/:id — denied paths', ()
     }
   });
 
-  it('a guest grant lacking the requested action is denied', async () => {
-    const viewOnlyGrant: GuestGrant = { ...groundFloorGrant, actions: ['comment', 'decide'] };
-    const restore = setGuestResolver((token) => (token === 'tok-1' ? viewOnlyGrant : undefined));
+  it('a guest grant lacking the requested action (no "view") is denied', async () => {
+    const noViewGrant: GuestGrant = { ...groundFloorGrant, actions: ['comment', 'decide'] };
+    const restore = setGuestResolver((token) => (token === 'tok-1' ? noViewGrant : undefined));
     try {
       const res = await call('/api/submissions/s-ground-floor', { guest: 'tok-1' });
       expect(res.status).toBe(404);
@@ -258,9 +303,29 @@ describe('access: integration via GET /api/submissions/:id — denied paths', ()
     expect(await res.json()).toEqual(notFoundBody);
   });
 
+  it('an empty-valued x-guest-token plus a valid owner x-user-id is still denied (presence, not truthiness)', async () => {
+    // Headers normalizes "   " to "": both must take the guest path, not fall through to
+    // member auth just because the token string happens to be falsy.
+    const empty = await call('/api/submissions/s-ground-floor', { guest: '', as: 'u-olivia' });
+    expect(empty.status).toBe(404);
+    expect(await empty.json()).toEqual(notFoundBody);
+
+    const whitespace = await call('/api/submissions/s-ground-floor', { guest: '   ', as: 'u-olivia' });
+    expect(whitespace.status).toBe(404);
+    expect(await whitespace.json()).toEqual(notFoundBody);
+  });
+
   it('no credentials at all returns 401 unauthorized', async () => {
     const res = await call('/api/submissions/s-ground-floor');
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: { code: 'unauthorized', message: 'Sign in required' } });
+  });
+
+  it('the literal acceptance criterion: GET s-mill-facade as u-sam returns 404, not 403', async () => {
+    // u-sam is a member of w-north, not w-south (which owns s-mill-facade) — the mirror
+    // of the already-tested u-rhea-reads-s-ground-floor case, tested here as written.
+    const res = await call('/api/submissions/s-mill-facade', { as: 'u-sam' });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual(notFoundBody);
   });
 });

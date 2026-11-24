@@ -10,8 +10,9 @@
   --color-border: #e5e1d8;
   --color-text: #141413;
   --color-text-muted: #6b6a63;
-  --color-accent: #c2603f;
-  --color-accent-contrast: #ffffff;
+  /* #a8502f on #ffffff is ~5.45:1, above WCAG AA's 4.5:1 for normal (16px bold here, which
+     does not qualify as "large") text; the original #c2603f was only ~3.9:1. */
+  --color-accent: #a8502f;
 
   --space-xs: 0.5rem;
   --space-sm: 0.75rem;

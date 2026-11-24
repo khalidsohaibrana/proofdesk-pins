@@ -11,7 +11,9 @@ export async function call(
 ): Promise<Response> {
   const app = await appPromise;
   const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (init.as) headers[USER_HEADER] = init.as;
-  if (init.guest) headers[GUEST_HEADER] = init.guest;
+  // Presence, not truthiness: an explicitly passed empty string must still send the
+  // header (tests exercise "header present but empty"), only an absent key sends none.
+  if (init.as !== undefined) headers[USER_HEADER] = init.as;
+  if (init.guest !== undefined) headers[GUEST_HEADER] = init.guest;
   return app.request(path, { method: init.method ?? 'GET', headers, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
 }
