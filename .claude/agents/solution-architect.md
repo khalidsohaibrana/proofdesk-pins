@@ -1,0 +1,1 @@
+../../agent-system/agents/solution-architect.md

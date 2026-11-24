@@ -1,0 +1,27 @@
+{
+  "name": "proofdesk-pins",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A small, real slice of ProofDesk: clients pin comments on a design and approve it. Built by a supervised team of AI agents.",
+  "type": "module",
+  "engines": { "node": ">=20.19" },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@hono/node-server": "1.19.19",
+    "hono": "4.13.21"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1",
+    "@types/node": "20.19.9",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}
