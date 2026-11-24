@@ -40,12 +40,16 @@
       }
 
       /* Binding client contract (ADR-0003 §D): the wrapper exactly bounds the image, so the
-         wrapper's box and the image's box are the same box — pins are fractions of that box. */
+         wrapper's box and the image's box are the same box — pins are fractions of that box.
+         No `border` here: a border would grow the wrapper's border box past the image's own
+         box (percentage offsets resolve against the padding box, so a border makes the two
+         boxes disagree by its own width). `outline` draws outside the box without affecting
+         layout, so it gives the same visual edge with no risk to that agreement. */
       .drawing-wrapper {
         position: relative;
         width: 100%;
         max-width: 100%;
-        border: 1px solid var(--color-border);
+        outline: 1px solid var(--color-border);
         border-radius: var(--radius-md);
         overflow: hidden;
         touch-action: manipulation;

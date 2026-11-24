@@ -12,11 +12,29 @@ let versionId = params.get('version');
 
 // The guest token lives only in the URL fragment (ADR-0003 §B): never sent as a query
 // parameter, never written to localStorage or the document, held in a module variable only
-// and sent as the `x-guest-token` header.
+// and sent as the `x-guest-token` header. Cleared from the visible URL/history immediately
+// after being read, so it does not linger in browser history or the address bar for as long
+// as the tab stays open (it is still held in memory for the rest of this page's lifetime).
 const guestToken = (() => {
   const fragment = new URLSearchParams(location.hash.replace(/^#/, ''));
-  return fragment.has('t') ? (fragment.get('t') ?? '') : undefined;
+  const token = fragment.has('t') ? (fragment.get('t') ?? '') : undefined;
+  if (token !== undefined) {
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+  return token;
 })();
+
+const decisionSlot = document.getElementById('decision-slot');
+// Set synchronously, before any await, from the URL params already in hand above (ADR-0003
+// §E): #5's decide.js is a sibling <script type="module"> and a top-level `await` later in
+// this file does not hold back its evaluation, so these must never depend on the submission
+// fetch below. The common case — a shareable link always carries both ids — is correct with
+// zero timing dependency. If `?version=` is absent, this is corrected once the default
+// version resolves in `loadContext()`.
+if (decisionSlot) {
+  decisionSlot.dataset.submissionId = submissionId ?? '';
+  decisionSlot.dataset.versionId = versionId ?? '';
+}
 
 const titleEl = document.getElementById('submission-title');
 const versionLabelEl = document.getElementById('version-label');
@@ -31,7 +49,6 @@ const pinHint = document.getElementById('pin-hint');
 const form = document.getElementById('comment-form');
 const bodyInput = document.getElementById('comment-body');
 const listEl = document.getElementById('comment-list');
-const decisionSlot = document.getElementById('decision-slot');
 
 let currentUserId = params.get('as') ?? '';
 if (asInput) asInput.value = currentUserId;

@@ -32,6 +32,11 @@ export interface Comment {
 // Module-local, append-only. No exported mutator reaches this array from outside the file.
 const comments: Comment[] = [];
 
+// Comments are permanent and append-only (invariant 2) in an in-memory, unbounded-lifetime
+// collection, so an unbounded body is a standing resource-exhaustion risk rather than a
+// one-off bad request. 10,000 characters comfortably covers any real review comment.
+const MAX_BODY_LENGTH = 10_000;
+
 /** Round to 4 decimal places — well under a pixel, keeps assertions free of float noise. */
 function round4(value: number): number {
   return Math.round(value * 10_000) / 10_000;
@@ -100,6 +105,9 @@ export function register(app: Hono): void {
     const body = payload.body;
     if (typeof body !== 'string' || body.trim().length === 0) {
       throw badRequest('body is required');
+    }
+    if (body.length > MAX_BODY_LENGTH) {
+      throw badRequest(`body must be at most ${MAX_BODY_LENGTH} characters`);
     }
 
     const pin = validatePin(payload.pin);

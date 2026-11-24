@@ -61,14 +61,24 @@ describe('comments: pin bounds (unit, via the POST route)', () => {
     ['1.5', 1.5],
   ];
 
-  it.each(invalidPins)('rejects pin.x = %s with 400 bad_request', async (_label, badValue) => {
-    const body: Record<string, unknown> = { body: 'hello' };
-    if (badValue !== undefined) body.pin = { x: badValue, y: 0.5 };
-    const res = await post('v-ground-1', { as: 'u-sam', body });
-    expect(res.status).toBe(400);
-    const json = (await res.json()) as { error: { code: string } };
-    expect(json.error.code).toBe('bad_request');
-  });
+  // Mirrored over both axes (round 2, BLOCKER 5): the original table varied only `pin.x`
+  // with `y` hard-coded to a valid 0.5, so `if (!isUnitFraction(x))` alone — silently
+  // dropping the `y` check — would still have passed every case. `pinWith` omits only the
+  // axis under test when the case is "missing", leaving the other axis valid, so each case
+  // isolates exactly one bad value on exactly one axis.
+  function pinWith(axis: 'x' | 'y', value: unknown): Record<string, unknown> {
+    if (value === undefined) return axis === 'x' ? { y: 0.5 } : { x: 0.5 };
+    return axis === 'x' ? { x: value, y: 0.5 } : { x: 0.5, y: value };
+  }
+
+  for (const axis of ['x', 'y'] as const) {
+    it.each(invalidPins)(`rejects pin.${axis} = %s with 400 bad_request`, async (_label, badValue) => {
+      const res = await post('v-ground-1', { as: 'u-sam', body: { body: 'hello', pin: pinWith(axis, badValue) } });
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: { code: string } };
+      expect(json.error.code).toBe('bad_request');
+    });
+  }
 
   it('a wholly missing pin field is rejected with 400', async () => {
     const res = await post('v-ground-1', { as: 'u-sam', body: { body: 'no pin here' } });
@@ -119,6 +129,21 @@ describe('comments: body validation', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  // Round-2 Aegis finding (non-blocking, fixed anyway): comments are permanent and
+  // append-only, so an unbounded body is a standing resource-exhaustion risk, not a
+  // one-off bad request.
+  it('accepts a body exactly at the 10,000 character cap', async () => {
+    const res = await post('v-ground-1', { as: 'u-sam', body: { body: 'a'.repeat(10_000), pin: { x: 0.5, y: 0.5 } } });
+    expect(res.status).toBe(201);
+  });
+
+  it('rejects a body over the 10,000 character cap with 400', async () => {
+    const res = await post('v-ground-1', { as: 'u-sam', body: { body: 'a'.repeat(10_001), pin: { x: 0.5, y: 0.5 } } });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { code: string } };
+    expect(json.error.code).toBe('bad_request');
+  });
 });
 
 describe('comments: allowed paths', () => {
@@ -146,19 +171,29 @@ describe('comments: allowed paths', () => {
   });
 
   it('GET returns only that version\'s comments (version-scoping of the collection filter)', async () => {
-    await post('v-ground-1', { as: 'u-sam', body: { body: 'on v-ground-1', pin: { x: 0.3, y: 0.3 } } });
-    await post('v-mill-1', { as: 'u-rhea', body: { body: 'on v-mill-1', pin: { x: 0.4, y: 0.4 } } });
+    const groundBody = 'on v-ground-1';
+    const millBody = 'on v-mill-1';
+    await post('v-ground-1', { as: 'u-sam', body: { body: groundBody, pin: { x: 0.3, y: 0.3 } } });
+    await post('v-mill-1', { as: 'u-rhea', body: { body: millBody, pin: { x: 0.4, y: 0.4 } } });
 
     const groundRes = await get('v-ground-1', { as: 'u-sam' });
     expect(groundRes.status).toBe(200);
     const groundComments = (await groundRes.json()) as Comment[];
     expect(groundComments.every((c) => c.versionId === 'v-ground-1')).toBe(true);
-    expect(groundComments.some((c) => c.body === 'on v-mill-1')).toBe(false);
+    // Round-2 fix (SHOULD FIX): the original test only asserted negatives (`.some(...) ===
+    // false`), which a route that always returns `[]` also satisfies — `[].every(...)` is
+    // `true` and every `.some(...)` on `[]` is `false`. These two positive assertions fail
+    // against that broken route, because they require the just-posted comment to actually
+    // be present.
+    expect(groundComments.some((c) => c.body === groundBody)).toBe(true);
+    expect(groundComments.some((c) => c.body === millBody)).toBe(false);
 
     const millRes = await get('v-mill-1', { as: 'u-rhea' });
     expect(millRes.status).toBe(200);
     const millComments = (await millRes.json()) as Comment[];
-    expect(millComments.some((c) => c.body === 'on v-ground-1')).toBe(false);
+    expect(millComments.every((c) => c.versionId === 'v-mill-1')).toBe(true);
+    expect(millComments.some((c) => c.body === millBody)).toBe(true);
+    expect(millComments.some((c) => c.body === groundBody)).toBe(false);
   });
 
   it('a guest grant scoped to the submission can GET even without comment, and POST works with comment', async () => {
