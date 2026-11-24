@@ -27,6 +27,14 @@
         flex: 1 1 10rem;
       }
 
+      p.demo-caption {
+        flex-basis: 100%;
+        margin: 0;
+        font-size: 0.8em;
+        font-style: italic;
+        color: var(--color-text-muted);
+      }
+
       select,
       input[type='text'] {
         font: inherit;
@@ -133,6 +141,7 @@
       <p class="lede">See who belongs to a workspace, and add a colleague if you're an owner.</p>
 
       <section class="identity-bar" aria-label="Demo identity">
+        <p class="demo-caption">Demo only — there is no sign-in in this slice; the server authorizes every request regardless of what you pick here.</p>
         <label for="actor">Acting as
           <select id="actor" name="actor">
             <option value="u-olivia">Olivia Hart (owner, North Studio)</option>

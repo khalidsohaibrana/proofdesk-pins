@@ -14,35 +14,48 @@ interface ErrorBody {
 
 const notFoundBody: ErrorBody = { error: { code: 'not_found', message: 'Not found' } };
 
-describe('members', () => {
-  it('lets any member of the workspace list the members (allowed path)', async () => {
-    const res = await call('/api/workspaces/w-north/members', { as: 'u-sam' });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { members: MemberView[] };
-    expect(body.members).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'u-olivia', name: 'Olivia Hart', email: 'olivia@northstudio.test', role: 'owner' }),
-        expect.objectContaining({ id: 'u-sam', name: 'Sam Patel', email: 'sam@northstudio.test', role: 'member' }),
-      ]),
-    );
-  });
+async function memberIds(workspaceId: string, as: string): Promise<string[]> {
+  const res = await call(`/api/workspaces/${workspaceId}/members`, { as });
+  const body = (await res.json()) as { members: MemberView[] };
+  return body.members.map((member) => member.id);
+}
 
-  // Written as one test, not two independent `it`s, so the narrative ("denied before she
-  // is added, then an owner adds her, then she can read") stays true under
-  // `--sequence.shuffle`: shuffle reorders tests and files, never statements inside one.
-  it('a non-member is denied, then an owner adds them, and the list then contains them', async () => {
+describe('members', () => {
+  // One test, not several independent `it`s, so the full narrative — exact initial list,
+  // both denials proving nothing changed, the owner's add, and the exact resulting list —
+  // stays true under `--sequence.shuffle`: shuffle reorders tests and files, never the
+  // statements inside one `it`. This is also where ADR-0003 §A's mandatory "a follow-up
+  // read as the legitimate member proves nothing changed" assertion lives for both denials.
+  it('lists exactly the workspace members, a non-member is denied with nothing changed, then an owner adds one and the list reflects exactly that', async () => {
+    // Exact list, not expect.arrayContaining: a members-of-the-workspace implementation
+    // that dropped its tenant filter and returned every membership in the system would
+    // still pass an arrayContaining check against these two names, but fails an exact
+    // id-set comparison the moment a third id shows up.
+    expect(await memberIds('w-north', 'u-sam')).toEqual(['u-olivia', 'u-sam']);
+
+    // Denied GET: u-rhea is not a member of w-north.
     const deniedGet = await call('/api/workspaces/w-north/members', { as: 'u-rhea' });
     expect(deniedGet.status).toBe(404);
     expect(await deniedGet.json()).toEqual(notFoundBody);
+    // Mandatory follow-up read (ADR-0003 §A): the denial must not have changed anything.
+    expect(await memberIds('w-north', 'u-sam')).toEqual(['u-olivia', 'u-sam']);
 
+    // Denied POST: u-rhea attempts to add herself — not an already-existing member of
+    // w-north, so a leaked write would be directly observable in the follow-up read below.
+    // (Posting an already-member userId here, as an earlier version of this test did,
+    // would hit the 409 branch and write nothing even with the tenancy gate removed —
+    // the exact gap this round's review found.)
     const deniedPost = await call('/api/workspaces/w-north/members', {
       as: 'u-rhea',
       method: 'POST',
-      body: { userId: 'u-sam', role: 'member' },
+      body: { userId: 'u-rhea', role: 'member' },
     });
     expect(deniedPost.status).toBe(404);
     expect(await deniedPost.json()).toEqual(notFoundBody);
+    // Mandatory follow-up read: still nothing changed.
+    expect(await memberIds('w-north', 'u-sam')).toEqual(['u-olivia', 'u-sam']);
 
+    // Allowed path: the real owner adds her.
     const added = await call('/api/workspaces/w-north/members', {
       as: 'u-olivia',
       method: 'POST',
@@ -50,12 +63,29 @@ describe('members', () => {
     });
     expect(added.status).toBe(201);
     const addedBody = (await added.json()) as { members: MemberView[] };
-    expect(addedBody.members).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: 'u-rhea', name: 'Rhea Okafor', role: 'member' })]),
-    );
+    expect(addedBody.members.map((member) => member.id)).toEqual(['u-olivia', 'u-sam', 'u-rhea']);
+    expect(addedBody.members.find((member) => member.id === 'u-rhea')).toEqual({
+      id: 'u-rhea',
+      name: 'Rhea Okafor',
+      email: 'rhea@southarch.test',
+      role: 'member',
+    });
 
-    const afterGet = await call('/api/workspaces/w-north/members', { as: 'u-rhea' });
-    expect(afterGet.status).toBe(200);
+    // The newly added member can now read the list herself.
+    expect(await memberIds('w-north', 'u-rhea')).toEqual(['u-olivia', 'u-sam', 'u-rhea']);
+  });
+
+  // Defends the tenant filter from the other direction: w-south's own membership is never
+  // touched by any other test in this file (nothing here ever adds to w-south), so this
+  // exact assertion is safe regardless of test order. A membersOf that returned every
+  // membership in the system — not just this workspace's — would include u-olivia and
+  // u-sam here, since they exist in the shared `users`/`memberships` arrays.
+  it('lists exactly the w-south members and never includes a w-north-only user (tenant filter, not a superset)', async () => {
+    const res = await call('/api/workspaces/w-south/members', { as: 'u-rhea' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { members: MemberView[] };
+    expect(body.members.map((member) => member.id)).toEqual(['u-rhea']);
+    expect(body.members.some((member) => member.id === 'u-sam' || member.id === 'u-olivia')).toBe(false);
   });
 
   it('refuses a member who is not an owner on POST with 403, not 401 or 404', async () => {
@@ -126,6 +156,15 @@ describe('members', () => {
     expect(missingRole.status).toBe(400);
   });
 
+  it('returns 400, not 500, when the request body is a literal JSON null', async () => {
+    // c.req.json() resolves (does not throw) for `null` — a valid JSON value — so the
+    // .catch(() => {}) fallback never fires and property access on `null` used to throw,
+    // surfacing as an uncaught 500 with a text/plain body instead of the error envelope.
+    const res = await call('/api/workspaces/w-north/members', { as: 'u-olivia', method: 'POST', body: null });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: { code: 'bad_request', message: 'userId is required' } });
+  });
+
   it('rejects adding a user who is already a member with 409, and does not create a duplicate row', async () => {
     const res = await call('/api/workspaces/w-north/members', {
       as: 'u-olivia',
@@ -148,5 +187,35 @@ describe('members', () => {
       const member = await call('/api/workspaces/w-north/members/u-sam', { method });
       expect(member.status).toBe(404);
     }
+  });
+
+  describe('authorizes before parsing the body (ADR-0003 §A step order)', () => {
+    // Swapping `requireMember(...)` and `c.req.json()` in the route would pass every other
+    // test in this file, because every denied-path request above happens to send a
+    // well-formed body. These two send a body that would itself produce a 400 if it were
+    // parsed and validated first, and assert the authorization outcome wins anyway.
+
+    it('a non-owner member still gets 403, not 400, for a body with an invalid role and a missing userId', async () => {
+      const res = await call('/api/workspaces/w-north/members', {
+        as: 'u-sam',
+        method: 'POST',
+        body: { role: 'admin' },
+      });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: { code: 'forbidden', message: 'Only workspace owners can do this' } });
+    });
+
+    it('a non-member still gets 404, not 400, for a malformed body that redundantly sets workspaceId', async () => {
+      // u-sam is a member of w-north, never of w-south, and no test in this file ever
+      // adds him there — unlike u-rhea, who the narrative test above does add to w-north,
+      // this choice stays a true non-member case regardless of test execution order.
+      const res = await call('/api/workspaces/w-south/members', {
+        as: 'u-sam',
+        method: 'POST',
+        body: { workspaceId: 'w-north', role: 123, userId: null },
+      });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual(notFoundBody);
+    });
   });
 });

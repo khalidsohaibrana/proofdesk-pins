@@ -50,8 +50,16 @@ export function register(app: Hono): void {
     // parsed (ADR-0003 §A step order) — requireMember runs first, parsing is below.
     requireMember(c, workspace.id, 'owner');
 
-    // Step 5: only now parse and validate the request body.
-    const raw = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    // Step 5: only now parse and validate the request body. `c.req.json()` resolves
+    // successfully (does not throw) for any valid JSON value, including a literal `null`,
+    // a number, or an array — none of which are an object, so reading a property off them
+    // would throw a TypeError and surface as an uncaught 500. Treat anything that is not a
+    // plain object as carrying no fields, same as the unparsable-JSON case below.
+    const parsedBody: unknown = await c.req.json().catch(() => ({}));
+    const raw: Record<string, unknown> =
+      parsedBody !== null && typeof parsedBody === 'object' && !Array.isArray(parsedBody)
+        ? (parsedBody as Record<string, unknown>)
+        : {};
     if (raw.workspaceId !== undefined) {
       throw badRequest('workspaceId is set by the path, not the body');
     }

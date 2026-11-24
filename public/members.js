@@ -39,12 +39,17 @@ async function loadMembers() {
     const res = await fetch(membersUrl(), { headers: { [USER_HEADER]: actorSelect.value } });
     const body = await res.json();
     if (!res.ok) {
+      // Tenant data from whatever identity/workspace was shown before must not linger on
+      // screen under a denial — a 404 for "not your workspace" is not "server had an
+      // error", it is "you may not see this", and the DOM must agree with that.
+      renderMembers([]);
       setStatus(body?.error?.message ?? 'Something went wrong', 'error');
       return;
     }
     renderMembers(body.members);
     setStatus('');
   } catch {
+    renderMembers([]);
     setStatus('Could not reach the server', 'error');
   }
 }
