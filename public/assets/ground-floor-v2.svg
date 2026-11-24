@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" font-family="Helvetica, Arial, sans-serif">
+  <rect width="1200" height="800" fill="#f6f5ef"/>
+  <g stroke="#2b2b2b" stroke-width="10" fill="none">
+    <rect x="80" y="80" width="1040" height="640"/>
+    <line x1="560" y1="80" x2="560" y2="420"/>
+    <line x1="80" y1="420" x2="760" y2="420"/>
+    <line x1="760" y1="80" x2="760" y2="720"/>
+    <line x1="300" y1="420" x2="300" y2="720"/>
+    <line x1="840" y1="420" x2="840" y2="720"/>
+  </g>
+  <g stroke="#f6f5ef" stroke-width="14">
+    <line x1="640" y1="420" x2="720" y2="420"/>
+    <line x1="760" y1="520" x2="760" y2="600"/>
+    <line x1="400" y1="720" x2="500" y2="720"/>
+    <line x1="840" y1="560" x2="840" y2="640"/>
+  </g>
+  <g fill="#a8502f" font-size="26" text-anchor="middle">
+    <text x="300" y="260">Living room</text><text x="680" y="260">Kitchen (extended)</text>
+    <text x="990" y="580">Studio</text><text x="190" y="580">Bath</text><text x="530" y="580">Hall</text>
+  </g>
+  <text x="80" y="60" font-size="22" fill="#2b2b2b">HARBOUR HOUSE · GROUND FLOOR · v2 · 1:100</text>
+</svg>

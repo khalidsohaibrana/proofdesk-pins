@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Versions · ProofDesk Pins</title>
+    <link rel="stylesheet" href="/app.css" />
+    <style>
+      /* Page-local styling only (ADR-0003 §E: app.css is frozen). Phone-first layout. */
+      .back-link {
+        display: inline-block;
+        margin-bottom: var(--space-md);
+        color: var(--color-text-muted);
+        text-decoration: none;
+      }
+      .back-link:hover,
+      .back-link:focus-visible {
+        color: var(--color-accent);
+      }
+
+      label.actor {
+        display: block;
+        font-size: 0.85em;
+        color: var(--color-text-muted);
+        margin-bottom: var(--space-lg);
+      }
+      label.actor select {
+        display: block;
+        margin-top: var(--space-xs);
+        width: 100%;
+        padding: var(--space-xs);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        font: inherit;
+      }
+
+      #status {
+        margin-bottom: var(--space-md);
+      }
+      #status[data-tone='error'] {
+        color: var(--color-accent);
+      }
+
+      ol#version-list {
+        list-style: none;
+        margin: 0 0 var(--space-lg);
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-sm);
+      }
+
+      .version-card {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-surface-raised);
+        padding: var(--space-md);
+      }
+      .version-card .version-number {
+        color: var(--color-accent);
+        font-weight: 600;
+        margin: 0 0 0.15em;
+      }
+      .version-card .version-meta {
+        color: var(--color-text-muted);
+        font-size: 0.9em;
+        margin: 0 0 var(--space-xs);
+      }
+      .version-card a.review-link {
+        color: var(--color-text);
+        text-decoration: underline;
+      }
+
+      form#add-version {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-lg);
+        background: var(--color-surface-raised);
+        padding: var(--space-md);
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-sm);
+      }
+      form#add-version label {
+        display: block;
+        font-size: 0.9em;
+      }
+      form#add-version input {
+        display: block;
+        width: 100%;
+        margin-top: var(--space-xs);
+        padding: var(--space-xs);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        font: inherit;
+        box-sizing: border-box;
+      }
+      form#add-version button {
+        align-self: flex-start;
+        margin-top: var(--space-xs);
+        padding: var(--space-xs) var(--space-md);
+        border: none;
+        border-radius: var(--radius-md);
+        background: var(--color-accent);
+        color: var(--color-surface-raised);
+        font: inherit;
+        cursor: pointer;
+      }
+      form#add-version button:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back-link" href="/">&larr; Back</a>
+      <h1>Version history</h1>
+      <p class="lede" id="submission-title">Loading&hellip;</p>
+
+      <label class="actor">
+        Acting as
+        <select id="actor-select">
+          <option value="u-olivia">Olivia Hart (owner, North Studio)</option>
+          <option value="u-sam">Sam Patel (member, North Studio)</option>
+          <option value="u-rhea">Rhea Okafor (owner, South Architecture)</option>
+        </select>
+      </label>
+
+      <p id="status" role="status"></p>
+
+      <ol id="version-list" aria-label="Versions, oldest first"></ol>
+
+      <form id="add-version">
+        <h2>Add a new version</h2>
+        <label>
+          Title
+          <input type="text" id="title" name="title" required />
+        </label>
+        <label>
+          Image path
+          <input type="text" id="imageUrl" name="imageUrl" placeholder="/assets/ground-floor-v2.svg" required />
+        </label>
+        <button type="submit">Add version</button>
+      </form>
+    </main>
+    <script type="module" src="/versions.js"></script>
+  </body>
+</html>
