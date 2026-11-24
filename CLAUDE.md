@@ -21,4 +21,5 @@ A small, real slice of ProofDesk, built by a supervised team of AI agents (`agen
 - Don't add roles, entities or features that aren't in the brief.
 - Authorization is enforced server-side; every such change ships with an allowed-path and a denied-path test.
 - Never claim something passed without the command output.
+- Branch names follow `docs/delivery/operating-defaults.md` (`agent/<issue#>-<slug>`); this overrides the builder's generic default.
 - Commands: `npm run check` (typecheck + unit tests), `npm run e2e` (recorded Playwright run). Install deps in a fresh worktree with `npm ci`.
