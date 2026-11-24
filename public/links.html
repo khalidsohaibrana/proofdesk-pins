@@ -25,6 +25,12 @@
       }
 
       fieldset {
+        /* Browsers give <fieldset> an implicit min-inline-size based on its content's
+           min-content width (historically min-width: -webkit-min-content in Chromium's UA
+           stylesheet), which overrides normal shrink-to-fit sizing and silently causes
+           horizontal overflow once content (e.g. a long member-typed label) is wider than
+           the viewport — independent of overflow-wrap on the content itself. */
+        min-width: 0;
         border: 1px solid var(--color-border);
         border-radius: var(--radius-md);
         padding: var(--space-md);
@@ -106,6 +112,11 @@
         gap: var(--space-sm);
       }
       .link-card {
+        /* Flex item (ul.link-list is display:flex) + defense-in-depth against the same
+           min-content sizing issue as the <fieldset> fix above: without this, a long
+           unbreakable run in the label could keep this item from shrinking below its
+           content's natural width. */
+        min-width: 0;
         border: 1px solid var(--color-border);
         border-radius: var(--radius-md);
         padding: var(--space-sm);
@@ -114,11 +125,13 @@
       .link-card .label {
         font-weight: 600;
         overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .link-card .meta {
         font-size: 0.85em;
         color: var(--color-text-muted);
         overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .status-badge {
         display: inline-block;
