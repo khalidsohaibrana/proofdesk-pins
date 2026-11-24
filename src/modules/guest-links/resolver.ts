@@ -4,16 +4,21 @@
 // return a grant whose actions include 'manage' (AC-S2).
 import { timingSafeEqual } from 'node:crypto';
 import type { Action, GuestGrant, GuestResolver } from '../../core/access.js';
-import { allGuestLinks } from './store.js';
+import { findGuestLinkByTokenHash } from './store.js';
 import { hashToken } from './token.js';
 
 /**
  * Fixed literal action set for every guest grant (AC-S2 / ADR-0003 §B). This is the only
  * place a GuestGrant's `actions` field is ever constructed, and it is a hardcoded literal —
  * never derived from stored data, request input or anything else that could introduce
- * 'manage'. A guest link can never grant more than this.
+ * 'manage'. `Object.freeze` makes this a *runtime* invariant, not just a compile-time one:
+ * `ReadonlyArray<Action>` is erased at runtime, so without freezing, one `(actions as
+ * Action[]).push('manage')` anywhere a `GuestGrant` is handled would silently add 'manage'
+ * to this single shared array instance and therefore to every grant ever issued, past and
+ * future, process-wide — exactly the failure mode AC-S2 exists to rule out now that
+ * src/core/access.ts is frozen and this resolver is the sole enforcement point.
  */
-const GUEST_ACTIONS: ReadonlyArray<Action> = ['view', 'comment', 'decide'];
+const GUEST_ACTIONS: ReadonlyArray<Action> = Object.freeze(['view', 'comment', 'decide']);
 
 function hashesMatch(storedHex: string, presentedHex: string): boolean {
   const stored = Buffer.from(storedHex, 'hex');
@@ -36,24 +41,23 @@ export const resolveGuestToken: GuestResolver = (token) => {
 
   const presentedHash = hashToken(token);
 
-  for (const link of allGuestLinks()) {
-    if (!hashesMatch(link.tokenHash, presentedHash)) continue;
+  // O(1) lookup by hash (ADR-0003 §B), then a final timingSafeEqual re-check of the hash
+  // bytes before trusting the match — belt-and-braces over the Map's own string equality.
+  const link = findGuestLinkByTokenHash(presentedHash);
+  if (!link || !hashesMatch(link.tokenHash, presentedHash)) return undefined;
 
-    // Matched by hash. Revocation and expiry are checked by field only — never by
-    // blanking tokenHash, which would turn a blank presented token into a false match.
-    if (link.revokedAt !== null) return undefined;
-    if (Date.parse(link.expiresAt) <= Date.now()) return undefined;
+  // Matched by hash. Revocation and expiry are checked by field only — never by
+  // blanking tokenHash, which would turn a blank presented token into a false match.
+  if (link.revokedAt !== null) return undefined;
+  if (Date.parse(link.expiresAt) <= Date.now()) return undefined;
 
-    const grant: GuestGrant = {
-      kind: 'guest',
-      linkId: link.id,
-      workspaceId: link.workspaceId,
-      submissionId: link.submissionId,
-      actions: GUEST_ACTIONS,
-      label: link.label,
-    };
-    return grant;
-  }
-
-  return undefined;
+  const grant: GuestGrant = {
+    kind: 'guest',
+    linkId: link.id,
+    workspaceId: link.workspaceId,
+    submissionId: link.submissionId,
+    actions: GUEST_ACTIONS,
+    label: link.label,
+  };
+  return grant;
 };

@@ -67,6 +67,24 @@ describe('guest-links: resolver — AC-S1 (blank token never resolves)', () => {
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual(notFoundBody);
   });
+
+  // Mutation-killers: every test above presents "" / "   " against fixtures whose stored
+  // hashes are sha256 of *real* tokens, so the hash lookup alone already returns undefined
+  // and resolver.ts's `token.trim().length === 0` guard is never actually exercised by them
+  // — delete the guard and all of the above still pass. These two fixtures store
+  // tokenHash = hashToken('') / hashToken('   ') literally, so only the explicit guard (and
+  // not hash lookup) stands between a blank presented token and a match. This is the half of
+  // AC-S1 that also pins "no startsWith/includes/substring matching": a guard built that way
+  // would still pass the tests above but fail these.
+  it('a stored tokenHash literally equal to hashToken(\'\') still never resolves against an empty presented token', () => {
+    addGuestLink(makeLink({ id: 'gl-s1-pinned-empty', token: '' }));
+    expect(resolveGuestToken('')).toBeUndefined();
+  });
+
+  it('a stored tokenHash literally equal to hashToken(\'   \') still never resolves against a whitespace-only presented token', () => {
+    addGuestLink(makeLink({ id: 'gl-s1-pinned-whitespace', token: '   ' }));
+    expect(resolveGuestToken('   ')).toBeUndefined();
+  });
 });
 
 describe('guest-links: resolver — AC-S2 (fixed action set, never manage)', () => {
@@ -80,6 +98,31 @@ describe('guest-links: resolver — AC-S2 (fixed action set, never manage)', () 
     addGuestLink(makeLink({ id: 'gl-s2-b', token: 'real-token-s2-b' }));
     const grant = resolveGuestToken('real-token-s2-b');
     expect(grant?.actions.includes('manage')).toBe(false);
+  });
+
+  it('the returned actions array is frozen at runtime, not just ReadonlyArray at compile time', () => {
+    addGuestLink(makeLink({ id: 'gl-s2-frozen', token: 'real-token-s2-frozen' }));
+    const grant = resolveGuestToken('real-token-s2-frozen');
+    expect(Object.isFrozen(grant?.actions)).toBe(true);
+  });
+
+  it('a mutation attempt on one grant\'s actions does not affect a second, independently-resolved grant', () => {
+    addGuestLink(makeLink({ id: 'gl-s2-poison-a', token: 'real-token-s2-poison-a' }));
+    addGuestLink(makeLink({ id: 'gl-s2-poison-b', token: 'real-token-s2-poison-b' }));
+
+    const first = resolveGuestToken('real-token-s2-poison-a');
+    // `actions` is typed ReadonlyArray<Action>, which is compile-time only; this simulates a
+    // careless consumer reaching for a mutating method via an `any`/array-cast escape hatch —
+    // exactly the attack the supervisor flagged (one push poisoning every grant, past and
+    // future, because every grant shares one array instance unless it is frozen).
+    expect(() => (first?.actions as unknown as string[])?.push('manage')).toThrow();
+
+    const second = resolveGuestToken('real-token-s2-poison-b');
+    expect(second?.actions).toEqual(['view', 'comment', 'decide']);
+    expect(second?.actions.includes('manage' as never)).toBe(false);
+
+    const firstAgain = resolveGuestToken('real-token-s2-poison-a');
+    expect(firstAgain?.actions).toEqual(['view', 'comment', 'decide']);
   });
 });
 
@@ -187,6 +230,8 @@ describe('guest-links: POST /api/submissions/:id/guest-links — allowed path', 
       body: { expiresAt: thirtyDays },
     });
     expect(res.status).toBe(201);
+    const body = (await res.json()) as CreateResponse;
+    expect(body.link.expiresAt).toBe(thirtyDays);
   });
 
   it('rejects an expiresAt beyond 30 days with 400', async () => {
@@ -241,7 +286,7 @@ describe('guest-links: revoke — allowed path and idempotency', () => {
     expect(resolveGuestToken(token)).toBeDefined();
 
     const revoked = await call(`/api/guest-links/${link.id}/revoke`, { method: 'POST', as: 'u-sam' });
-    expect([200, 204]).toContain(revoked.status);
+    expect(revoked.status).toBe(200);
 
     expect(resolveGuestToken(token)).toBeUndefined();
   });
@@ -255,8 +300,8 @@ describe('guest-links: revoke — allowed path and idempotency', () => {
     expect(firstBody.link.revokedAt).not.toBeNull();
 
     const second = await call(`/api/guest-links/${link.id}/revoke`, { method: 'POST', as: 'u-olivia' });
+    expect(second.status).toBe(200);
     const secondBody = (await second.json()) as { link: { revokedAt: string | null } };
-    expect([200, 204]).toContain(second.status);
     expect(secondBody.link.revokedAt).toBe(firstBody.link.revokedAt);
   });
 });
@@ -264,15 +309,16 @@ describe('guest-links: revoke — allowed path and idempotency', () => {
 describe('guest-links: denied paths (tenant isolation)', () => {
   it('u-rhea cannot create a link on w-north\'s submission — 404, nothing changed', async () => {
     const before = await call('/api/submissions/s-ground-floor/guest-links', { as: 'u-sam' });
-    const beforeBody = (await before.json()) as { links: unknown[] };
+    const beforeBody = await before.json();
 
     const denied = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', as: 'u-rhea', body: {} });
     expect(denied.status).toBe(404);
     expect(await denied.json()).toEqual(notFoundBody);
 
     const after = await call('/api/submissions/s-ground-floor/guest-links', { as: 'u-sam' });
-    const afterBody = (await after.json()) as { links: unknown[] };
-    expect(afterBody.links.length).toBe(beforeBody.links.length);
+    // Full deep-equality, not just a length comparison: catches a mutation of an existing
+    // link (e.g. a stray revoke) that a count-only check would miss.
+    expect(await after.json()).toEqual(beforeBody);
   });
 
   it("u-rhea cannot list w-north's links — 404", async () => {
@@ -307,6 +353,28 @@ describe('guest-links: denied paths (tenant isolation)', () => {
     expect(nonexistentBody).toEqual(notFoundBody);
   });
 
+  it('anti-enumeration on create: a cross-tenant submission id and a nonexistent submission id return deep-equal 404 bodies', async () => {
+    const crossTenant = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', as: 'u-rhea', body: {} });
+    const nonexistent = await call('/api/submissions/does-not-exist/guest-links', { method: 'POST', as: 'u-rhea', body: {} });
+    const crossTenantBody = await crossTenant.json();
+    const nonexistentBody = await nonexistent.json();
+    expect(crossTenant.status).toBe(404);
+    expect(nonexistent.status).toBe(404);
+    expect(crossTenantBody).toEqual(nonexistentBody);
+    expect(nonexistentBody).toEqual(notFoundBody);
+  });
+
+  it('anti-enumeration on list: a cross-tenant submission id and a nonexistent submission id return deep-equal 404 bodies', async () => {
+    const crossTenant = await call('/api/submissions/s-ground-floor/guest-links', { as: 'u-rhea' });
+    const nonexistent = await call('/api/submissions/does-not-exist/guest-links', { as: 'u-rhea' });
+    const crossTenantBody = await crossTenant.json();
+    const nonexistentBody = await nonexistent.json();
+    expect(crossTenant.status).toBe(404);
+    expect(nonexistent.status).toBe(404);
+    expect(crossTenantBody).toEqual(nonexistentBody);
+    expect(nonexistentBody).toEqual(notFoundBody);
+  });
+
   it('anonymous (no credentials at all) is refused with 401, not 404', async () => {
     const create = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', body: {} });
     expect(create.status).toBe(401);
@@ -315,9 +383,128 @@ describe('guest-links: denied paths (tenant isolation)', () => {
   });
 });
 
+describe('guest-links: denied paths — a guest grant on the three management routes (AC-S2 end to end)', () => {
+  it('a valid guest grant cannot create, list or revoke a link — all three 404, and nothing changes', async () => {
+    const created = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', as: 'u-olivia', body: { label: 'Guest-denied fixture' } });
+    const { token, link } = (await created.json()) as CreateResponse;
+
+    const before = await call('/api/submissions/s-ground-floor/guest-links', { as: 'u-sam' });
+    const beforeBody = await before.json();
+
+    const createDenied = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', guest: token, body: {} });
+    expect(createDenied.status).toBe(404);
+    expect(await createDenied.json()).toEqual(notFoundBody);
+
+    const listDenied = await call('/api/submissions/s-ground-floor/guest-links', { guest: token });
+    expect(listDenied.status).toBe(404);
+    expect(await listDenied.json()).toEqual(notFoundBody);
+
+    const revokeDenied = await call(`/api/guest-links/${link.id}/revoke`, { method: 'POST', guest: token });
+    expect(revokeDenied.status).toBe(404);
+    expect(await revokeDenied.json()).toEqual(notFoundBody);
+
+    // Nothing created, nothing revoked: the collection as a member sees it is unchanged,
+    // and the original link's own token still resolves (it was never revoked).
+    const after = await call('/api/submissions/s-ground-floor/guest-links', { as: 'u-sam' });
+    expect(await after.json()).toEqual(beforeBody);
+    expect(resolveGuestToken(token)).toBeDefined();
+  });
+
+  it('a guest grant scoped to a different submission is denied on all three routes', async () => {
+    const created = await call('/api/submissions/s-mill-facade/guest-links', { method: 'POST', as: 'u-rhea', body: { label: 'Wrong-submission fixture' } });
+    const { token } = (await created.json()) as CreateResponse;
+
+    const createDenied = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', guest: token, body: {} });
+    expect(createDenied.status).toBe(404);
+    const listDenied = await call('/api/submissions/s-ground-floor/guest-links', { guest: token });
+    expect(listDenied.status).toBe(404);
+  });
+
+  it('confused-deputy: a valid guest token plus a legitimate owner x-user-id is still denied, never re-judged as a member', async () => {
+    const created = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', as: 'u-olivia', body: { label: 'Confused-deputy fixture' } });
+    const { token } = (await created.json()) as CreateResponse;
+
+    const res = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', guest: token, as: 'u-olivia', body: {} });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual(notFoundBody);
+  });
+});
+
+describe('guest-links: ADR-0003 §A step 1 — body-supplied identifiers are rejected, not ignored', () => {
+  it('a workspaceId in the body is rejected with 400', async () => {
+    const res = await call('/api/submissions/s-ground-floor/guest-links', {
+      method: 'POST',
+      as: 'u-olivia',
+      body: { workspaceId: 'w-south' },
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({ error: { code: 'bad_request' } });
+  });
+
+  it('a submissionId in the body is rejected with 400', async () => {
+    const res = await call('/api/submissions/s-ground-floor/guest-links', {
+      method: 'POST',
+      as: 'u-olivia',
+      body: { submissionId: 's-mill-facade' },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('authorization precedes body validation: a denied caller with an invalid body still gets 404, not 400', async () => {
+    // u-rhea is not a member of w-north. If body parsing/validation ever moved ahead of the
+    // ADR-0003 §A step-4 authorization gate, this would start returning 400 instead.
+    const res = await call('/api/submissions/s-ground-floor/guest-links', {
+      method: 'POST',
+      as: 'u-rhea',
+      body: { expiresAt: 'not-a-date' },
+    });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual(notFoundBody);
+  });
+});
+
+describe('guest-links: request body hygiene (null, malformed, and oversized input)', () => {
+  it('a literal null JSON body returns 400, not an unhandled 500', async () => {
+    const res = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', as: 'u-olivia', body: null });
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({ error: { code: 'bad_request' } });
+  });
+
+  it('an array JSON body returns 400', async () => {
+    const res = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', as: 'u-olivia', body: [] });
+    expect(res.status).toBe(400);
+  });
+
+  it('a primitive JSON body returns 400', async () => {
+    const res = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', as: 'u-olivia', body: 'not-an-object' });
+    expect(res.status).toBe(400);
+  });
+
+  it('a label beyond the length cap is rejected with 400', async () => {
+    const res = await call('/api/submissions/s-ground-floor/guest-links', {
+      method: 'POST',
+      as: 'u-olivia',
+      body: { label: 'x'.repeat(121) },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('a label exactly at the length cap is accepted', async () => {
+    const label = 'x'.repeat(120);
+    const res = await call('/api/submissions/s-ground-floor/guest-links', { method: 'POST', as: 'u-olivia', body: { label } });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as CreateResponse;
+    expect(body.link.label).toBe(label);
+  });
+});
+
 describe('guest-links: no PATCH/PUT/DELETE route exists on any guest-link path', () => {
   const methods = ['PATCH', 'PUT', 'DELETE'] as const;
-  const paths = ['/api/submissions/s-ground-floor/guest-links', '/api/guest-links/gl-whatever/revoke'];
+  const paths = [
+    '/api/submissions/s-ground-floor/guest-links',
+    '/api/guest-links/gl-whatever/revoke',
+    '/api/guest-links/gl-whatever',
+  ];
 
   for (const path of paths) {
     for (const method of methods) {

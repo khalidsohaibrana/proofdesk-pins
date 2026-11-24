@@ -2,7 +2,7 @@
 // Owns its own GuestLink collection and installs the resolver that lets #4/#5 recognize a
 // guest via core's requireSubmissionAccess. Never imports another module.
 import { randomUUID } from 'node:crypto';
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
 import { requireSubmissionAccess, setGuestResolver } from '../../core/access.js';
 import { badRequest, notFound } from '../../core/http.js';
 import { findSubmission } from '../../core/store.js';
@@ -14,6 +14,10 @@ import { generateToken, hashToken } from './token.js';
 const DEFAULT_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_LABEL = 'Guest reviewer';
+// The label becomes Principal.label and is stored permanently on every downstream comment
+// and decision (#4/#5), then rendered on the review page — bounded so neither the in-memory
+// store nor that layout can be blown out by one request.
+const MAX_LABEL_LENGTH = 120;
 
 interface CreateLinkBody {
   readonly label?: unknown;
@@ -46,7 +50,31 @@ function resolveLabel(raw: unknown): string {
   if (raw === undefined) return DEFAULT_LABEL;
   if (typeof raw !== 'string') throw badRequest('label must be a string');
   const trimmed = raw.trim();
+  if (trimmed.length > MAX_LABEL_LENGTH) throw badRequest(`label must be at most ${MAX_LABEL_LENGTH} characters`);
   return trimmed.length > 0 ? trimmed : DEFAULT_LABEL;
+}
+
+/**
+ * Reads and validates the request body as a JSON object, distinguishing "no body" (treated
+ * as `{}`, so every field falls back to its default) from "unparseable body" and from "valid
+ * JSON but not an object" (`null`, an array, or a primitive) — both of the latter are
+ * `400 bad_request`, never silently coerced to `{}` and never left to throw past this point
+ * (a literal `null` body reaching `body.workspaceId` would otherwise be an unhandled 500,
+ * which breaks the error envelope every other path returns).
+ */
+async function readJsonObjectBody(c: Context): Promise<CreateLinkBody> {
+  const raw = await c.req.text();
+  if (raw.length === 0) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw badRequest('Request body must be valid JSON');
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw badRequest('Request body must be a JSON object');
+  }
+  return parsed as CreateLinkBody;
 }
 
 export function register(app: Hono): void {
@@ -60,8 +88,12 @@ export function register(app: Hono): void {
     // Issuing a link is a workspace-management action: members only, never a guest, and
     // never any token's grant (guest grants never include 'manage' — AC-S2).
     const principal = requireSubmissionAccess(c, submission, 'manage');
+    // AC-S2 guarantees no guest grant ever includes 'manage', so a guest principal can
+    // never reach here — asserted, not silently papered over with a fallback value that
+    // would otherwise let a nonsensical createdBy slip into a stored record.
+    if (principal.kind !== 'user') throw notFound();
 
-    const body = (await c.req.json().catch(() => ({}))) as CreateLinkBody;
+    const body = await readJsonObjectBody(c);
     if (body.workspaceId !== undefined || body.submissionId !== undefined) {
       // ADR-0003 §A step 1: identifiers the path already determines are rejected, not
       // silently ignored, if the body also carries them.
@@ -79,7 +111,7 @@ export function register(app: Hono): void {
       submissionId: submission.id,
       tokenHash: hashToken(token),
       label,
-      createdBy: principal.kind === 'user' ? principal.userId : principal.linkId,
+      createdBy: principal.userId,
       createdAt: new Date(now).toISOString(),
       expiresAt,
       revokedAt: null,
@@ -105,7 +137,11 @@ export function register(app: Hono): void {
     const submission = findSubmission(link.submissionId);
     if (!submission) throw notFound();
     requireSubmissionAccess(c, submission, 'manage');
-    const revoked = revokeGuestLink(link.id) as GuestLink;
+    const revoked = revokeGuestLink(link.id);
+    // Unreachable: `link` was just found by this same id, so revokeGuestLink cannot miss —
+    // handled rather than cast, so a future refactor that breaks this invariant gets a 404
+    // instead of a type-unsafe assertion papering over it.
+    if (!revoked) throw notFound();
     return c.json({ link: toPublicLink(revoked) }, 200);
   });
 }
