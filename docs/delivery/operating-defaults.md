@@ -2,6 +2,7 @@
 
 | Setting | Value |
 |---|---|
+| Concurrent subagents | **max 7 running at once** (builders, reviewers, security, QA, resumed agents), enforced by `agent-system/hooks/cap-subagents.mjs` |
 | Parallel builders | **5** (demo repo; one ticket = one builder = one branch = one PR) |
 | Builder model | sonnet · Reviewer / security / QA: per agent file |
 | Review rounds | **max 3** per PR; after round 3 the supervisor escalates to the human |

@@ -8,5 +8,6 @@
     ".github/pull_request_template.md",
     ".github/ISSUE_TEMPLATE/"
   ],
-  "projectName": "ProofDesk Pins"
+  "projectName": "ProofDesk Pins",
+  "maxConcurrentAgents": 7
 }
