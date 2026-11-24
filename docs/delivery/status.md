@@ -2,7 +2,7 @@
 
 The supervisor reads this first and updates it at the end of every session.
 
-**Last updated:** 2026-11-24, supervisor session 1 — **wind-down**. T0 merged; wave 2 built and in review; dispatching stopped at the product owner's instruction.
+**Last updated:** 2026-11-24, supervisor session 2 — restarted with the per-role team limits loaded (D-009). #10 QA recorded; #13 review re-verify and #14 security re-verify dispatched.
 
 ## Current gate
 **Wave 2, G2/G3.** ADR-0001, ADR-0002, ADR-0003 Accepted. #1 (T0) merged as `a8bea90`; `src/core/**` is **frozen**. All five capability PRs are open, **all five CI-green**, all past their first verdicts, all through at least one fix round.
@@ -11,13 +11,13 @@ The supervisor reads this first and updates it at the end of every session.
 
 | # | Ticket | PR | Head | Review | Security | QA |
 |---|---|---|---|---|---|---|
-| 2 | members and roles | #10 | `253da74` | **APPROVE r2** | **PASS r2** | *in flight at wind-down* |
+| 2 | members and roles | #10 | `253da74` | **APPROVE r2** | **PASS r2** | **PASS** |
 | 3 | guest review links | #12 | `179a095` | CHANGES r2 — **blocker was body-only, body rewritten by supervisor**; needs confirmation only | **PASS r2** | not started |
 | 4 | pinned comments | #14 | `595b98a` | CHANGES r1 → r2 pushed, **not yet re-reviewed** | PASS r1 (**STALE**, earned at `eaad7e4`) | not started |
 | 5 | approval decisions | #11 | `a8d683f` | **APPROVE r2** | **PASS r2** | **PASS** |
 | 6 | new asset versions | #13 | `f8b3c05` | APPROVE r1 (**STALE**, earned at `7e15a4a`) | **PASS r2** | not started |
 
-**Fully gated (G3 complete): #11 only.** #10 was one QA verdict away.
+**Fully gated (G3 complete): #10 and #11.** Both awaiting the product owner's merge; both PR bodies were rewritten by the supervisor so the permanent record matches what shipped (the originals carried stale round-1 figures and, on #12, a paraphrased Playwright run pasted at a commit where that job was red).
 
 **Rounds used (max 3, then escalate): #10: 2 · #11: 2 · #12: 2 · #13: 2 · #14: 2 — every PR has exactly one round left.**
 
@@ -35,7 +35,7 @@ He **disregarded it, reverted the probe, and disclosed it** in his verdict, conf
 4. **Three decisions parked, all non-blocking, all recorded on the PRs:**
    - **Anonymous `401`-vs-`404` existence oracle.** Raised independently by both reviewers on three PRs. Structural to ADR-0003 §A's step order (step 2 loads the record before step 4 authorizes) and **already present on `main`**. Reveals only "an id exists somewhere", never tenancy or content. *Recommendation: accept with a one-line ADR note; before production, close it for every route at once with a credential-presence gate in `src/core/access.ts` ahead of step 1 — needs an ADR amendment.*
    - **No-consent member add** (#10): an owner can add any existing user id without consent and reads their name and email back in the `201`. Verified **not** to breach invariant 1. A privacy choice before this leaves the demo slice.
-   - **`@hono/node-server` 1.19.19 moderate advisory** (GHSA-rmxm-3fg6-px4f), inherited from the seed; fix is a breaking major. *Recommendation: separate ticket, decide at release.*
+   - **`@hono/node-server` 1.19.19 moderate advisory** (GHSA-rmxm-3fg6-px4f), inherited from the seed; fix is a breaking major. *Recommendation: separate ticket, decide at release.* Separately, QA on #10 found `npm audit` **without** `--omit=dev` reports **6 findings (2 critical, 2 high, 2 moderate) in devDependencies only** (`vitest`, `@vitest/mocker`, `tinypool`, `playwright`) — not shipped to production and the lockfile is untouched by any wave-2 PR, so not a merge blocker. `npm audit --omit=dev` shows exactly the 1 moderate above. *Recommendation: fold the dev-dependency bumps into the same release-time ticket.*
 
 ## Known gaps, deliberately accepted — the important section
 - **Invariant 3 has no full automated proof.** #13's regression test is **vacuous** by construction: its comment/decision fixtures are `const` locals the route can never reach, so three assertions cannot fail for any implementation. An implementation that re-parented real comments would leave the suite green. Partly mitigated in #13 r2 by a real **import-boundary guard** — but **Aegis found that guard has a blind spot**: it filters with `/^\s*import\b/`, so a **dynamic `import()`** or an **`export { x } from '…'` re-export** evades it. He proved it empirically by injecting both and watching the test pass when it should have failed. No production code exploits it today. **Fix the regex when closing #15.**
@@ -44,10 +44,10 @@ He **disregarded it, reverted the probe, and disclosed it** in his verdict, conf
 - **No recording has had its frames visually inspected.** QA confirmed artifact existence, validity and commit binding on #1 and #11, but `ffprobe`/`ffmpeg` were unavailable in-sandbox. The project profile makes that recording *the* feature-run evidence — it needs one spot-check by someone with full tool access before production sign-off.
 - **→ All of the above are tracked on [#15](https://github.com/khalidsohaibrana/proofdesk-pins/issues/15), priority raised. Treat #15 as a release blocker, not a tidy-up.** The brief's end-to-end acceptance scenario (automated E2E **and** a recorded walkthrough) is **not satisfied**; the project is not complete until it is.
 
-## Next actions (next supervisor session)
-1. Read #10's QA verdict off the PR (it was in flight at wind-down) and record it.
-2. Re-review **#14 r2**; re-verify **#14** security (stale); re-review **#13** (stale). Confirm **#12**'s rewritten body.
-3. QA #12, #13, #14 as the single QA slot frees.
+## Next actions
+1. ~~Record #10's QA verdict.~~ **Done — `QA: PASS`. #10 is fully gated.**
+2. **In flight (session 2):** #13 review re-verify (reviewer slot) · #14 security re-verify (security slot). Queued behind them: **#12** review confirmation of the rewritten body, then **#14 r2** review.
+3. QA #12, #13, #14 as each clears a current G2 and the single QA slot frees. **QA cannot start before review and security are both current on that head.**
 4. Respect D-009: **5 builders, 1 reviewer, 1 security, 1 QA, 7 total**, from `.claude/agent-system.json` via `agent-system/hooks/cap-subagents.mjs`. Same-role reviews of different PRs **serialise** — plan for a slow tail. Never raise a limit; never edit those config files.
 5. Present fully-gated PRs with their unverified lists attached. **Never present a PR as complete while its #15 gaps are open.**
 6. After the five merge: dispatch **#15**, then **#7** (guest-journey E2E).
